@@ -17,9 +17,10 @@ already be expected to know.
 - **Pure static site** — `index.html` + `css/` + `js/app.js`. No backend server.
 - **Camera / photo**: uses a plain `<input type="file" capture="environment">`,
   which opens the camera (or gallery) on both Android phones and tablets.
-- **Crop**: the photo is drawn to a `<canvas>`; drag (mouse or touch) to select
-  a rectangle. Only the cropped region is sent to the model (cheaper, more
-  private, more accurate OCR than the whole photo).
+- **Rotate + crop**: the photo is drawn to a `<canvas>`; rotate it left or
+  right as needed, then drag (mouse or touch) to select a rectangle. Only the
+  cropped region is sent to the model (cheaper, more private, more accurate
+  OCR than the whole photo).
 - **AI backend**: your own **Azure OpenAI** resource (GPT vision model). The
   app calls the Chat Completions REST API directly from the browser.
 - **Authentication**: this Azure environment enforces "no API keys" (local
