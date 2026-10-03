@@ -39,7 +39,7 @@ already be expected to know.
 | Azure OpenAI resource | `sommerlernplan-ai-a8fbd8e1` (resource group `rg-sommerlernplan-2026`, region germanywestcentral) |
 | Model deployment | `japanese-text-analyzer` → `gpt-5.4-mini` (vision-capable) |
 | Entra ID App registration | "Japanese Text Analyzer" (client ID pre-filled in Settings) |
-| Redirect URIs registered | `https://erjosito.github.io/japanese-text-analyzer/`, `http://localhost:5500/`, `http://127.0.0.1:5500/`, `http://localhost:8080/` |
+| Redirect URIs registered | `https://erjosito.github.io/japanese-text-analyzer/`, `https://erjosito.github.io/japanese-text-analyzer/index.html`, `http://localhost:5500/`, `http://127.0.0.1:5500/`, `http://localhost:8080/` |
 
 These values are already pre-filled as defaults in Settings — you normally
 don't need to touch them. If you ever redeploy to a different URL, add that

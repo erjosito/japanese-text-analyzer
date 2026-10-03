@@ -119,7 +119,7 @@ function initMsal() {
     auth: {
       clientId: settings.clientId,
       authority: `https://login.microsoftonline.com/${settings.tenantId}`,
-      redirectUri: window.location.origin + window.location.pathname,
+      redirectUri: new URL('./', window.location.href).href,
     },
     cache: { cacheLocation: 'localStorage' },
   };
