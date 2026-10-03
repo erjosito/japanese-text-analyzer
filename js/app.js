@@ -148,8 +148,12 @@ function initMsal() {
 function refreshAccountStatus() {
   if (activeAccount) {
     els.accountStatus.textContent = `Signed in as ${activeAccount.username}`;
+    els.btnAccount.textContent = activeAccount.name || activeAccount.username;
+    els.btnAccount.title = `Signed in as ${activeAccount.username}`;
   } else {
     els.accountStatus.textContent = 'Not signed in';
+    els.btnAccount.textContent = 'Sign in';
+    els.btnAccount.title = 'Sign in';
   }
 }
 

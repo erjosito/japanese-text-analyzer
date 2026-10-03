@@ -39,6 +39,19 @@ html, body {
 
 .header-actions { display: flex; gap: 0.5rem; }
 
+.account-btn {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  cursor: pointer;
+  max-width: 11rem;
+  overflow: hidden;
+  padding: 0.4rem 0.65rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .icon-btn {
   background: transparent;
   border: none;
