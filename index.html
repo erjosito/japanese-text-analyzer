@@ -8,7 +8,7 @@
 <link rel="manifest" href="manifest.webmanifest" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
-<link rel="stylesheet" href="css/style.css?v=9" />
+<link rel="stylesheet" href="css/style.css?v=11" />
 </head>
 <body>
 <header class="app-header">
@@ -64,6 +64,14 @@
   <form method="dialog" class="modal-content">
     <h2>Settings</h2>
 
+    <div class="account-panel">
+      <span id="account-status" class="muted">Not signed in</span>
+      <div class="account-actions">
+        <button type="button" id="btn-signin" class="secondary-btn">🔑 Sign in</button>
+        <button type="button" id="btn-signout" class="secondary-btn">Sign out</button>
+      </div>
+    </div>
+
     <fieldset>
       <legend>Azure OpenAI</legend>
       <label>Endpoint
@@ -81,7 +89,7 @@
       <label>Entra ID App (client) ID
         <input type="text" id="cfg-clientid" placeholder="app-guid" />
       </label>
-      <p class="muted">Authentication uses your Microsoft account (Entra ID sign-in) — no API key is stored. Click "Sign in" below after filling these in.</p>
+      <p class="muted">Authentication uses your Microsoft account (Entra ID sign-in) — no API key is stored. Use the account control at the top of the app to sign in.</p>
     </fieldset>
 
     <fieldset>
@@ -89,12 +97,6 @@
       <label><input type="checkbox" id="cfg-furigana" checked /> Show furigana / readings</label>
       <label><input type="checkbox" id="cfg-romaji" /> Also show romaji</label>
     </fieldset>
-
-    <div class="modal-actions">
-      <button type="button" id="btn-signin" class="secondary-btn">🔑 Sign in</button>
-      <button type="button" id="btn-signout" class="secondary-btn">Sign out</button>
-      <span id="account-status" class="muted"></span>
-    </div>
 
     <div class="modal-actions">
       <button type="submit" id="btn-save-settings" class="primary-btn">Save</button>
@@ -106,6 +108,6 @@
 <div id="toast" class="toast hidden"></div>
 
 <script src="js/vendor/msal-browser.min.js"></script>
-<script src="js/app.js?v=9"></script>
+<script src="js/app.js?v=11"></script>
 </body>
 </html>

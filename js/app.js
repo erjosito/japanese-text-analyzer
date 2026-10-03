@@ -389,6 +389,7 @@ function buildPrompt(level) {
 Respond with ONLY a single valid JSON object (no markdown fences, no extra commentary) matching exactly this shape:
 {
   "sourceText": "the Japanese text exactly as read from the image, preserving its original line breaks with \\n",
+  "sourceWithFurigana": "the same text and line breaks, annotating kanji words as {surface|hiragana reading}, for example {日本語|にほんご}",
   "translation": "a natural, fluent English translation preserving the same line-by-line structure with \\n",
   "words": [
     {"word": "...", "reading": "... (hiragana reading)", "romaji": "...", "meaning": "short English meaning", "partOfSpeech": "..."}
@@ -405,6 +406,7 @@ Respond with ONLY a single valid JSON object (no markdown fences, no extra comme
 
 Rules for tailoring to the learner's level (${levelLabel}):
 - Preserve the visible line breaks from the image in "sourceText". Encode line breaks as \\n inside the JSON string.
+- In "sourceWithFurigana", reproduce the exact same text and line breaks as "sourceText", adding readings only with {kanji-containing surface text|hiragana reading}. Do not change or omit any source characters outside those annotations.
 - Preserve corresponding line breaks in "translation", translating each source line in the same order so the two blocks are easy to compare.
 - "words": only include words that are genuinely useful/important to learn for someone at this level. Skip words that are trivially basic for this level (e.g. for N2/N1 learners, skip elementary particles or very common N5 vocabulary already assumed known). For N5 learners, include most content words since everything is new.
 - "kanjiBreakdown": only include entries for words composed of two or more kanji characters, decomposed into their individual kanji. Every "kanjiBreakdown" word must also appear exactly in "words". Skip this decomposition for kanji that would already be well known at the learner's level (e.g. do not decompose extremely common kanji for N1 learners); focus on kanji at or above their current level.
@@ -492,6 +494,20 @@ function esc(s) {
   return d.innerHTML;
 }
 
+function renderFurigana(text) {
+  const source = String(text || '');
+  const annotation = /\{([^{}|\n]+)\|([^{}|\n]+)\}/g;
+  let html = '';
+  let lastIndex = 0;
+  let match;
+  while ((match = annotation.exec(source)) !== null) {
+    html += esc(source.slice(lastIndex, match.index));
+    html += `<ruby>${esc(match[1])}<rt>${esc(match[2])}</rt></ruby>`;
+    lastIndex = annotation.lastIndex;
+  }
+  return html + esc(source.slice(lastIndex));
+}
+
 function renderKanjiDetails(breakdowns) {
   if (!breakdowns.length) return '';
   let html = `<details class="kanji-details"><summary>Kanji breakdown</summary>`;
@@ -514,7 +530,16 @@ function renderResult(r) {
   let html = '';
 
   if (r.sourceText) {
-    html += `<div class="result-card"><h3>Recognized text</h3><div class="jp-text text-block">${esc(r.sourceText)}</div></div>`;
+    const hasFurigana = !!r.sourceWithFurigana;
+    html += `<div class="result-card"><div class="result-card-header"><h3>Recognized text</h3>`;
+    if (hasFurigana) {
+      html += `<label class="furigana-toggle"><input type="checkbox" id="result-furigana-toggle"${showFurigana ? ' checked' : ''} /> Furigana</label>`;
+    }
+    html += `</div><div id="source-plain" class="jp-text text-block${hasFurigana && showFurigana ? ' hidden' : ''}">${esc(r.sourceText)}</div>`;
+    if (hasFurigana) {
+      html += `<div id="source-furigana" class="jp-text text-block${showFurigana ? '' : ' hidden'}">${renderFurigana(r.sourceWithFurigana)}</div>`;
+    }
+    html += `</div>`;
   }
 
   html += `<div class="result-card"><h3>Translation</h3><div class="text-block">${esc(r.translation || '—')}</div></div>`;
@@ -550,6 +575,14 @@ function renderResult(r) {
 
   els.resultArea.innerHTML = html;
   els.resultArea.classList.remove('hidden');
+
+  const furiganaToggle = document.getElementById('result-furigana-toggle');
+  if (furiganaToggle) {
+    furiganaToggle.addEventListener('change', () => {
+      document.getElementById('source-plain').classList.toggle('hidden', furiganaToggle.checked);
+      document.getElementById('source-furigana').classList.toggle('hidden', !furiganaToggle.checked);
+    });
+  }
 }
 
 // ---------- init ----------

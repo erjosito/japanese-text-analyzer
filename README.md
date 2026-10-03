@@ -3,7 +3,8 @@
 A installable web app (PWA) that lets you photograph Japanese text, crop a
 rectangular region, and get an AI-powered breakdown tailored to your JLPT level:
 
-- Recognized text and translation with the photographed line layout preserved
+- Recognized text and translation with the photographed line layout preserved,
+  plus an on-card furigana toggle for the recognized Japanese
 - A list of the most important words (with reading/romaji/meaning)
 - Expandable kanji decomposition below each multi-kanji vocabulary word
 - Explanation of the relevant grammar points
@@ -54,7 +55,7 @@ will fail with a redirect URI mismatch.
 
 1. Open the app URL (GitHub Pages link) in Chrome (Android/S24) or any modern
    browser (Lenovo tablet).
-2. Tap **⚙️ Settings** → **🔑 Sign in** → sign in with your Microsoft account
+2. Tap **Sign in** at the top of the app → sign in with your Microsoft account
    that has access to the Azure subscription. The first time, you may see a
    permission consent screen for "Microsoft Cognitive Services" — accept it.
 3. Tap **Save**.
