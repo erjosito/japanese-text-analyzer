@@ -1,0 +1,86 @@
+# Japanese Text Analyzer
+
+A installable web app (PWA) that lets you photograph Japanese text, crop a
+rectangular region, and get an AI-powered breakdown tailored to your JLPT level:
+
+- Full translation
+- A list of the most important words (with reading/romaji/meaning)
+- Kanji decomposition for multi-kanji words (each kanji + reading + meaning)
+- Explanation of the relevant grammar points
+
+The explanation depth adapts to the **JLPT level** you pick on the main screen
+(N5 → N1): more advanced levels skip explanations of vocabulary/grammar you'd
+already be expected to know.
+
+## How it works / architecture
+
+- **Pure static site** — `index.html` + `css/` + `js/app.js`. No backend server.
+- **Camera / photo**: uses a plain `<input type="file" capture="environment">`,
+  which opens the camera (or gallery) on both Android phones and tablets.
+- **Crop**: the photo is drawn to a `<canvas>`; drag (mouse or touch) to select
+  a rectangle. Only the cropped region is sent to the model (cheaper, more
+  private, more accurate OCR than the whole photo).
+- **AI backend**: your own **Azure OpenAI** resource (GPT vision model). The
+  app calls the Chat Completions REST API directly from the browser.
+- **Authentication**: this Azure environment enforces "no API keys" (local
+  auth disabled by policy), so the app signs you in with your **Microsoft
+  Entra ID** account via [MSAL.js](https://github.com/AzureAD/microsoft-authentication-library-for-js)
+  and calls Azure OpenAI with your personal delegated token. No secret is
+  ever stored — only your Azure OpenAI endpoint, deployment name, tenant ID
+  and app (client) ID are kept in the browser's `localStorage`.
+- **Installable (PWA)**: `manifest.webmanifest` + `sw.js` let you "Add to Home
+  screen" on both the Samsung S24 and the Lenovo tablet, so it behaves like an
+  app icon, full-screen, works from any browser without an app-store install.
+
+## Azure resources already provisioned for you
+
+| Resource | Value |
+|---|---|
+| Azure OpenAI resource | `sommerlernplan-ai-a8fbd8e1` (resource group `rg-sommerlernplan-2026`, region germanywestcentral) |
+| Model deployment | `japanese-text-analyzer` → `gpt-5.4-mini` (vision-capable) |
+| Entra ID App registration | "Japanese Text Analyzer" (client ID pre-filled in Settings) |
+| Redirect URIs registered | `https://erjosito.github.io/japanese-text-analyzer/`, `http://localhost:5500/`, `http://127.0.0.1:5500/`, `http://localhost:8080/` |
+
+These values are already pre-filled as defaults in Settings — you normally
+don't need to touch them. If you ever redeploy to a different URL, add that
+URL as a redirect URI on the app registration (Entra admin center → App
+registrations → Japanese Text Analyzer → Authentication), otherwise sign-in
+will fail with a redirect URI mismatch.
+
+## First-time setup on a device
+
+1. Open the app URL (GitHub Pages link) in Chrome (Android/S24) or any modern
+   browser (Lenovo tablet).
+2. Tap **⚙️ Settings** → **🔑 Sign in** → sign in with your Microsoft account
+   that has access to the Azure subscription. The first time, you may see a
+   permission consent screen for "Microsoft Cognitive Services" — accept it.
+3. Tap **Save**.
+4. (Optional) Tap the browser menu → **Install app** / **Add to Home screen**
+   so it opens full-screen like a native app.
+5. Pick your JLPT level on the main screen, take/choose a photo, drag to
+   select the text region, and tap **Analyze**.
+
+## Local development
+
+Because Entra ID sign-in (MSAL) requires `http(s)://`, you can't just double
+click `index.html` (file:// origin won't work for sign-in). Serve it locally:
+
+```powershell
+# from the JapaneseApp folder
+python -m http.server 5500
+# then open http://localhost:5500/
+```
+
+(`http://localhost:5500/` is already registered as a redirect URI.)
+
+## Deploying / updating
+
+The app is a static site published via **GitHub Pages** from this repo's
+`main` branch (root). Just commit and push changes — GitHub Pages rebuilds
+automatically within a minute or two.
+
+## Cost note
+
+Only the cropped snippet of the photo (not the full photo) is sent per
+analysis, using a small/cheap GPT model deployment, to keep Azure OpenAI
+token costs low.

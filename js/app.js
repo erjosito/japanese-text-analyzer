@@ -1,0 +1,492 @@
+// Japanese Text Analyzer - client-side app logic
+// Uses MSAL.js (Entra ID) to get a token for the user's own Azure OpenAI resource,
+// calls it directly from the browser (no backend), and renders a structured analysis.
+
+const LS_KEY = 'jta_settings_v1';
+
+const DEFAULT_SETTINGS = {
+  endpoint: 'https://sommerlernplan-ai-a8fbd8e1.openai.azure.com',
+  deployment: 'japanese-text-analyzer',
+  apiVersion: '2024-10-21',
+  tenantId: '5ad00b69-0386-4c74-8adc-ac7a28649f34',
+  clientId: 'b9852c8b-060f-4915-9850-9d185e19b3e5',
+  furigana: true,
+  romaji: false,
+};
+
+function loadSettings() {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return { ...DEFAULT_SETTINGS };
+    return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+  } catch {
+    return { ...DEFAULT_SETTINGS };
+  }
+}
+
+function saveSettings(s) {
+  localStorage.setItem(LS_KEY, JSON.stringify(s));
+}
+
+let settings = loadSettings();
+
+// ---------- DOM refs ----------
+const els = {
+  btnSettings: document.getElementById('btn-settings'),
+  btnAccount: document.getElementById('btn-account'),
+  settingsModal: document.getElementById('settings-modal'),
+  btnCloseSettings: document.getElementById('btn-close-settings'),
+  btnSaveSettings: document.getElementById('btn-save-settings'),
+  cfgEndpoint: document.getElementById('cfg-endpoint'),
+  cfgDeployment: document.getElementById('cfg-deployment'),
+  cfgApiVersion: document.getElementById('cfg-apiversion'),
+  cfgTenant: document.getElementById('cfg-tenant'),
+  cfgClientId: document.getElementById('cfg-clientid'),
+  cfgFurigana: document.getElementById('cfg-furigana'),
+  cfgRomaji: document.getElementById('cfg-romaji'),
+  btnSignin: document.getElementById('btn-signin'),
+  btnSignout: document.getElementById('btn-signout'),
+  accountStatus: document.getElementById('account-status'),
+  levelSelect: document.getElementById('level-select'),
+  captureEmpty: document.getElementById('capture-empty'),
+  captureEditor: document.getElementById('capture-editor'),
+  btnPickImage: document.getElementById('btn-pick-image'),
+  fileInput: document.getElementById('file-input'),
+  photoCanvas: document.getElementById('photo-canvas'),
+  selectionCanvas: document.getElementById('selection-canvas'),
+  cropStage: document.getElementById('crop-stage'),
+  btnRetake: document.getElementById('btn-retake'),
+  btnResetCrop: document.getElementById('btn-reset-crop'),
+  btnAnalyze: document.getElementById('btn-analyze'),
+  resultArea: document.getElementById('result-area'),
+  toast: document.getElementById('toast'),
+};
+
+function toast(msg, ms = 3000) {
+  els.toast.textContent = msg;
+  els.toast.classList.remove('hidden');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => els.toast.classList.add('hidden'), ms);
+}
+
+// ---------- Settings modal ----------
+function openSettingsModal() {
+  els.cfgEndpoint.value = settings.endpoint || '';
+  els.cfgDeployment.value = settings.deployment || '';
+  els.cfgApiVersion.value = settings.apiVersion || '';
+  els.cfgTenant.value = settings.tenantId || '';
+  els.cfgClientId.value = settings.clientId || '';
+  els.cfgFurigana.checked = !!settings.furigana;
+  els.cfgRomaji.checked = !!settings.romaji;
+  refreshAccountStatus();
+  els.settingsModal.showModal();
+}
+
+els.btnSettings.addEventListener('click', openSettingsModal);
+els.btnAccount.addEventListener('click', openSettingsModal);
+els.btnCloseSettings.addEventListener('click', () => els.settingsModal.close());
+
+els.btnSaveSettings.addEventListener('click', (e) => {
+  settings.endpoint = els.cfgEndpoint.value.trim().replace(/\/+$/, '');
+  settings.deployment = els.cfgDeployment.value.trim();
+  settings.apiVersion = els.cfgApiVersion.value.trim() || DEFAULT_SETTINGS.apiVersion;
+  settings.tenantId = els.cfgTenant.value.trim();
+  settings.clientId = els.cfgClientId.value.trim();
+  settings.furigana = els.cfgFurigana.checked;
+  settings.romaji = els.cfgRomaji.checked;
+  saveSettings(settings);
+  toast('Settings saved');
+  initMsal(); // re-init in case tenant/client changed
+});
+
+// ---------- MSAL auth ----------
+let msalApp = null;
+let activeAccount = null;
+
+function initMsal() {
+  if (!settings.tenantId || !settings.clientId) return;
+  const config = {
+    auth: {
+      clientId: settings.clientId,
+      authority: `https://login.microsoftonline.com/${settings.tenantId}`,
+      redirectUri: window.location.origin + window.location.pathname,
+    },
+    cache: { cacheLocation: 'localStorage' },
+  };
+  msalApp = new msal.PublicClientApplication(config);
+  msalApp.initialize().then(() => {
+    msalApp.handleRedirectPromise().then(() => {
+      const accounts = msalApp.getAllAccounts();
+      if (accounts.length > 0) {
+        activeAccount = accounts[0];
+      }
+      refreshAccountStatus();
+    });
+  });
+}
+
+function refreshAccountStatus() {
+  if (activeAccount) {
+    els.accountStatus.textContent = `Signed in as ${activeAccount.username}`;
+  } else {
+    els.accountStatus.textContent = 'Not signed in';
+  }
+}
+
+els.btnSignin.addEventListener('click', async () => {
+  if (!msalApp) initMsal();
+  if (!msalApp) { toast('Fill in Tenant ID and Client ID first'); return; }
+  try {
+    const result = await msalApp.loginPopup({
+      scopes: ['https://cognitiveservices.azure.com/user_impersonation'],
+    });
+    activeAccount = result.account;
+    refreshAccountStatus();
+    toast('Signed in');
+  } catch (err) {
+    console.error(err);
+    toast('Sign-in failed: ' + (err.message || err));
+  }
+});
+
+els.btnSignout.addEventListener('click', async () => {
+  if (!msalApp || !activeAccount) return;
+  await msalApp.logoutPopup({ account: activeAccount });
+  activeAccount = null;
+  refreshAccountStatus();
+});
+
+async function getAccessToken() {
+  if (!msalApp) initMsal();
+  if (!msalApp) throw new Error('Sign-in not configured. Open Settings and fill Tenant/Client ID.');
+  const request = {
+    scopes: ['https://cognitiveservices.azure.com/user_impersonation'],
+    account: activeAccount || msalApp.getAllAccounts()[0],
+  };
+  if (!request.account) {
+    const result = await msalApp.loginPopup(request);
+    activeAccount = result.account;
+    refreshAccountStatus();
+    return result.accessToken;
+  }
+  try {
+    const result = await msalApp.acquireTokenSilent(request);
+    return result.accessToken;
+  } catch (err) {
+    const result = await msalApp.acquireTokenPopup(request);
+    activeAccount = result.account;
+    return result.accessToken;
+  }
+}
+
+// ---------- Image capture + crop ----------
+let img = new Image();
+let imgLoaded = false;
+let selection = null; // {x,y,w,h} in canvas pixel coords (natural image resolution)
+let dragStart = null;
+let scaleFactor = 1; // displayed size / natural size
+
+els.btnPickImage.addEventListener('click', () => els.fileInput.click());
+els.btnRetake.addEventListener('click', () => els.fileInput.click());
+
+els.fileInput.addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    img = new Image();
+    img.onload = () => {
+      imgLoaded = true;
+      setupCanvas();
+      els.captureEmpty.classList.add('hidden');
+      els.captureEditor.classList.remove('hidden');
+      els.resultArea.classList.add('hidden');
+      els.resultArea.innerHTML = '';
+    };
+    img.src = ev.target.result;
+  };
+  reader.readAsDataURL(file);
+  els.fileInput.value = '';
+});
+
+function setupCanvas() {
+  const maxW = els.cropStage.clientWidth || 360;
+  const natW = img.naturalWidth;
+  const natH = img.naturalHeight;
+  scaleFactor = Math.min(1, maxW / natW);
+  const dispW = Math.round(natW * scaleFactor);
+  const dispH = Math.round(natH * scaleFactor);
+
+  [els.photoCanvas, els.selectionCanvas].forEach((c) => {
+    c.width = natW;
+    c.height = natH;
+    c.style.width = dispW + 'px';
+    c.style.height = dispH + 'px';
+  });
+  els.cropStage.style.height = dispH + 'px';
+
+  const ctx = els.photoCanvas.getContext('2d');
+  ctx.clearRect(0, 0, natW, natH);
+  ctx.drawImage(img, 0, 0, natW, natH);
+
+  selection = null;
+  drawSelectionOverlay();
+  els.btnAnalyze.disabled = true;
+}
+
+function canvasPosFromEvent(e) {
+  const rect = els.selectionCanvas.getBoundingClientRect();
+  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+  const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+  const xDisp = clientX - rect.left;
+  const yDisp = clientY - rect.top;
+  // convert displayed coords to natural-resolution canvas coords
+  const x = xDisp * (els.selectionCanvas.width / rect.width);
+  const y = yDisp * (els.selectionCanvas.height / rect.height);
+  return { x, y };
+}
+
+function startDrag(e) {
+  if (!imgLoaded) return;
+  e.preventDefault();
+  dragStart = canvasPosFromEvent(e);
+  selection = { x: dragStart.x, y: dragStart.y, w: 0, h: 0 };
+}
+
+function moveDrag(e) {
+  if (!dragStart) return;
+  e.preventDefault();
+  const pos = canvasPosFromEvent(e);
+  selection = {
+    x: Math.min(dragStart.x, pos.x),
+    y: Math.min(dragStart.y, pos.y),
+    w: Math.abs(pos.x - dragStart.x),
+    h: Math.abs(pos.y - dragStart.y),
+  };
+  drawSelectionOverlay();
+}
+
+function endDrag() {
+  dragStart = null;
+  els.btnAnalyze.disabled = !(selection && selection.w > 10 && selection.h > 10);
+}
+
+els.selectionCanvas.addEventListener('mousedown', startDrag);
+els.selectionCanvas.addEventListener('mousemove', moveDrag);
+window.addEventListener('mouseup', endDrag);
+els.selectionCanvas.addEventListener('touchstart', startDrag, { passive: false });
+els.selectionCanvas.addEventListener('touchmove', moveDrag, { passive: false });
+els.selectionCanvas.addEventListener('touchend', endDrag);
+
+function drawSelectionOverlay() {
+  const ctx = els.selectionCanvas.getContext('2d');
+  ctx.clearRect(0, 0, els.selectionCanvas.width, els.selectionCanvas.height);
+  if (!selection) return;
+  ctx.fillStyle = 'rgba(0,0,0,0.45)';
+  ctx.fillRect(0, 0, els.selectionCanvas.width, els.selectionCanvas.height);
+  ctx.clearRect(selection.x, selection.y, selection.w, selection.h);
+  ctx.strokeStyle = '#e0544e';
+  ctx.lineWidth = Math.max(2, 3 / scaleFactor);
+  ctx.strokeRect(selection.x, selection.y, selection.w, selection.h);
+}
+
+els.btnResetCrop.addEventListener('click', () => {
+  selection = null;
+  drawSelectionOverlay();
+  els.btnAnalyze.disabled = true;
+});
+
+function getCroppedDataUrl() {
+  const w = Math.round(selection.w);
+  const h = Math.round(selection.h);
+  const out = document.createElement('canvas');
+  out.width = w;
+  out.height = h;
+  out.getContext('2d').drawImage(
+    els.photoCanvas,
+    Math.round(selection.x), Math.round(selection.y), w, h,
+    0, 0, w, h
+  );
+  return out.toDataURL('image/jpeg', 0.92);
+}
+
+// ---------- Analysis ----------
+const LEVEL_LABELS = {
+  N5: 'JLPT N5 (absolute beginner)',
+  N4: 'JLPT N4 (beginner)',
+  N3: 'JLPT N3 (intermediate)',
+  N2: 'JLPT N2 (upper intermediate)',
+  N1: 'JLPT N1 (advanced)',
+};
+
+function buildPrompt(level) {
+  const levelLabel = LEVEL_LABELS[level] || level;
+  return `You are a Japanese language tutor analyzing a photo of Japanese text for a learner at ${levelLabel}.
+Respond with ONLY a single valid JSON object (no markdown fences, no extra commentary) matching exactly this shape:
+{
+  "sourceText": "the Japanese text exactly as read from the image",
+  "translation": "a natural, fluent English translation of the full text",
+  "words": [
+    {"word": "...", "reading": "... (hiragana reading)", "romaji": "...", "meaning": "short English meaning", "partOfSpeech": "..."}
+  ],
+  "kanjiBreakdown": [
+    {"word": "a word from the text made of two or more kanji", "kanji": [
+      {"char": "single kanji character", "onyomi": "...", "kunyomi": "...", "meaning": "core meaning(s)", "note": "how this kanji contributes to the word's meaning"}
+    ]}
+  ],
+  "grammar": [
+    {"pattern": "grammar point / structure name", "excerpt": "the exact phrase from the text showing it", "explanation": "clear explanation of the rule and why it's used here"}
+  ]
+}
+
+Rules for tailoring to the learner's level (${levelLabel}):
+- "words": only include words that are genuinely useful/important to learn for someone at this level. Skip words that are trivially basic for this level (e.g. for N2/N1 learners, skip elementary particles or very common N5 vocabulary already assumed known). For N5 learners, include most content words since everything is new.
+- "kanjiBreakdown": only include entries for words composed of two or more kanji characters, decomposed into their individual kanji. Skip this decomposition for kanji that would already be well known at the learner's level (e.g. do not decompose extremely common kanji for N1 learners); focus on kanji at or above their current level.
+- "grammar": only explain grammar points that are at or above the learner's current level (i.e. things they likely do NOT already know). Do not explain grammar that is more basic than their level.
+- If the text is very short or simple, it is fine for "words", "kanjiBreakdown", or "grammar" to be empty arrays.
+- All explanations should be written in English.
+- Output strictly valid JSON, with no trailing commas.`;
+}
+
+function setLoading(isLoading) {
+  if (isLoading) {
+    els.resultArea.classList.remove('hidden');
+    els.resultArea.innerHTML = '<div class="loading">Analyzing text… ⏳</div>';
+  }
+}
+
+function showError(err) {
+  els.resultArea.classList.remove('hidden');
+  els.resultArea.innerHTML = `<div class="error-box">Analysis failed:\n${(err && err.message) || err}</div>`;
+}
+
+function parseModelJson(raw) {
+  let text = raw.trim();
+  // strip markdown code fences if present
+  text = text.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+  return JSON.parse(text);
+}
+
+async function analyze() {
+  if (!settings.endpoint || !settings.deployment) {
+    toast('Open Settings and configure the Azure OpenAI endpoint/deployment first');
+    openSettingsModal();
+    return;
+  }
+  setLoading(true);
+  try {
+    const token = await getAccessToken();
+    const dataUrl = getCroppedDataUrl();
+    const level = els.levelSelect.value;
+    const prompt = buildPrompt(level);
+
+    const url = `${settings.endpoint}/openai/deployments/${encodeURIComponent(settings.deployment)}/chat/completions?api-version=${encodeURIComponent(settings.apiVersion)}`;
+    const body = {
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: prompt },
+            { type: 'image_url', image_url: { url: dataUrl } },
+          ],
+        },
+      ],
+      max_completion_tokens: 3000,
+    };
+
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!resp.ok) {
+      const errText = await resp.text();
+      throw new Error(`HTTP ${resp.status}: ${errText}`);
+    }
+    const data = await resp.json();
+    const content = data.choices?.[0]?.message?.content;
+    if (!content) throw new Error('Empty response from model');
+    const parsed = parseModelJson(content);
+    renderResult(parsed);
+  } catch (err) {
+    console.error(err);
+    showError(err);
+  }
+}
+
+els.btnAnalyze.addEventListener('click', analyze);
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s == null ? '' : String(s);
+  return d.innerHTML;
+}
+
+function renderResult(r) {
+  const showFurigana = settings.furigana;
+  const showRomaji = settings.romaji;
+  let html = '';
+
+  if (r.sourceText) {
+    html += `<div class="result-card"><h3>Recognized text</h3><div class="jp-text">${esc(r.sourceText)}</div></div>`;
+  }
+
+  html += `<div class="result-card"><h3>Translation</h3><div>${esc(r.translation || '—')}</div></div>`;
+
+  if (r.words && r.words.length) {
+    html += `<div class="result-card"><h3>Important words</h3><ul class="word-list">`;
+    for (const w of r.words) {
+      html += `<li><span class="word-main">${esc(w.word)}</span>`;
+      if (showFurigana && w.reading) html += `<span class="word-reading">${esc(w.reading)}</span>`;
+      if (showRomaji && w.romaji) html += `<span class="word-reading">[${esc(w.romaji)}]</span>`;
+      html += `<div class="word-meaning">${esc(w.meaning || '')}${w.partOfSpeech ? ` <span class="muted">(${esc(w.partOfSpeech)})</span>` : ''}</div></li>`;
+    }
+    html += `</ul></div>`;
+  }
+
+  if (r.kanjiBreakdown && r.kanjiBreakdown.length) {
+    html += `<div class="result-card"><h3>Kanji breakdown</h3>`;
+    for (const kb of r.kanjiBreakdown) {
+      html += `<p><strong>${esc(kb.word)}</strong></p><div>`;
+      for (const k of kb.kanji || []) {
+        html += `<span class="kanji-chip"><span class="kanji-char">${esc(k.char)}</span>`
+          + `<span class="kanji-detail">${esc(k.onyomi || '')}${k.kunyomi ? ' / ' + esc(k.kunyomi) : ''} — ${esc(k.meaning || '')}</span></span>`;
+      }
+      html += `</div>`;
+      const notes = (kb.kanji || []).filter(k => k.note).map(k => `${esc(k.char)}: ${esc(k.note)}`);
+      if (notes.length) html += `<p class="muted">${notes.join(' · ')}</p>`;
+    }
+    html += `</div>`;
+  }
+
+  if (r.grammar && r.grammar.length) {
+    html += `<div class="result-card"><h3>Grammar</h3>`;
+    for (const g of r.grammar) {
+      html += `<div class="grammar-item"><div class="pattern">${esc(g.pattern)}</div>`;
+        if (g.excerpt) html += `<div class="jp-text">${esc(g.excerpt)}</div>`;
+      html += `<div>${esc(g.explanation || '')}</div></div>`;
+    }
+    html += `</div>`;
+  }
+
+  els.resultArea.innerHTML = html;
+  els.resultArea.classList.remove('hidden');
+}
+
+// ---------- init ----------
+els.levelSelect.value = localStorage.getItem('jta_level') || 'N3';
+els.levelSelect.addEventListener('change', () => localStorage.setItem('jta_level', els.levelSelect.value));
+
+initMsal();
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  });
+}
+
+window.addEventListener('resize', () => { if (imgLoaded) setupCanvas(); });

@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Japanese Text Analyzer</title>
+<meta name="theme-color" content="#1f2a44" />
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="icon" href="icons/icon-192.png" />
+<link rel="apple-touch-icon" href="icons/icon-192.png" />
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<header class="app-header">
+  <h1>日本語 Text Analyzer</h1>
+  <div class="header-actions">
+    <button id="btn-account" class="icon-btn" title="Account">👤</button>
+    <button id="btn-settings" class="icon-btn" title="Settings">⚙️</button>
+  </div>
+</header>
+
+<main id="view-capture" class="view active">
+  <section class="level-bar">
+    <label for="level-select">Your level</label>
+    <select id="level-select">
+      <option value="N5">N5 (beginner)</option>
+      <option value="N4">N4</option>
+      <option value="N3" selected>N3</option>
+      <option value="N2">N2</option>
+      <option value="N1">N1 (advanced)</option>
+    </select>
+  </section>
+
+  <section id="capture-empty" class="capture-empty">
+    <p>Take a photo or choose an image containing Japanese text.</p>
+    <button id="btn-pick-image" class="primary-btn">📷 Take / Choose Photo</button>
+    <input type="file" id="file-input" accept="image/*" capture="environment" hidden />
+  </section>
+
+  <section id="capture-editor" class="capture-editor hidden">
+    <p class="hint">Drag to select the text region, then tap Analyze.</p>
+    <div id="crop-stage" class="crop-stage">
+      <canvas id="photo-canvas"></canvas>
+      <canvas id="selection-canvas"></canvas>
+    </div>
+    <div class="editor-actions">
+      <button id="btn-retake" class="secondary-btn">↺ Retake</button>
+      <button id="btn-reset-crop" class="secondary-btn">⬚ Reset selection</button>
+      <button id="btn-analyze" class="primary-btn" disabled>🔍 Analyze</button>
+    </div>
+  </section>
+
+  <section id="result-area" class="result-area hidden"></section>
+</main>
+
+<!-- Settings modal -->
+<dialog id="settings-modal" class="modal">
+  <form method="dialog" class="modal-content">
+    <h2>Settings</h2>
+
+    <fieldset>
+      <legend>Azure OpenAI</legend>
+      <label>Endpoint
+        <input type="text" id="cfg-endpoint" placeholder="https://your-resource.openai.azure.com" />
+      </label>
+      <label>Deployment name
+        <input type="text" id="cfg-deployment" placeholder="gpt-4o-mini" />
+      </label>
+      <label>API version
+        <input type="text" id="cfg-apiversion" placeholder="2024-10-21" />
+      </label>
+      <label>Entra ID Tenant ID
+        <input type="text" id="cfg-tenant" placeholder="tenant-guid" />
+      </label>
+      <label>Entra ID App (client) ID
+        <input type="text" id="cfg-clientid" placeholder="app-guid" />
+      </label>
+      <p class="muted">Authentication uses your Microsoft account (Entra ID sign-in) — no API key is stored. Click "Sign in" below after filling these in.</p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Explanation detail</legend>
+      <label><input type="checkbox" id="cfg-furigana" checked /> Show furigana / readings</label>
+      <label><input type="checkbox" id="cfg-romaji" /> Also show romaji</label>
+    </fieldset>
+
+    <div class="modal-actions">
+      <button type="button" id="btn-signin" class="secondary-btn">🔑 Sign in</button>
+      <button type="button" id="btn-signout" class="secondary-btn">Sign out</button>
+      <span id="account-status" class="muted"></span>
+    </div>
+
+    <div class="modal-actions">
+      <button type="submit" id="btn-save-settings" class="primary-btn">Save</button>
+      <button type="button" id="btn-close-settings" class="secondary-btn">Close</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="https://alcdn.msauth.net/browser/3.26.0/js/msal-browser.min.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
