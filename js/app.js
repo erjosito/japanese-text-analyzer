@@ -101,10 +101,20 @@ els.btnSaveSettings.addEventListener('click', (e) => {
 
 // ---------- MSAL auth ----------
 let msalApp = null;
+let msalReady = Promise.resolve();
 let activeAccount = null;
 
 function initMsal() {
-  if (!settings.tenantId || !settings.clientId) return;
+  if (!settings.tenantId || !settings.clientId) {
+    msalApp = null;
+    msalReady = Promise.resolve();
+    return msalReady;
+  }
+  if (typeof msal === 'undefined') {
+    msalApp = null;
+    msalReady = Promise.reject(new Error('The Microsoft sign-in library failed to load. Refresh the app and try again.'));
+    return msalReady;
+  }
   const config = {
     auth: {
       clientId: settings.clientId,
@@ -114,15 +124,16 @@ function initMsal() {
     cache: { cacheLocation: 'localStorage' },
   };
   msalApp = new msal.PublicClientApplication(config);
-  msalApp.initialize().then(() => {
+  msalReady = msalApp.initialize().then(() =>
     msalApp.handleRedirectPromise().then(() => {
       const accounts = msalApp.getAllAccounts();
       if (accounts.length > 0) {
         activeAccount = accounts[0];
       }
       refreshAccountStatus();
-    });
-  });
+    })
+  );
+  return msalReady;
 }
 
 function refreshAccountStatus() {
@@ -134,9 +145,10 @@ function refreshAccountStatus() {
 }
 
 els.btnSignin.addEventListener('click', async () => {
-  if (!msalApp) initMsal();
-  if (!msalApp) { toast('Fill in Tenant ID and Client ID first'); return; }
   try {
+    if (!msalApp) initMsal();
+    if (!msalApp) { toast('Fill in Tenant ID and Client ID first'); return; }
+    await msalReady;
     const result = await msalApp.loginPopup({
       scopes: ['https://cognitiveservices.azure.com/user_impersonation'],
     });
@@ -159,6 +171,7 @@ els.btnSignout.addEventListener('click', async () => {
 async function getAccessToken() {
   if (!msalApp) initMsal();
   if (!msalApp) throw new Error('Sign-in not configured. Open Settings and fill Tenant/Client ID.');
+  await msalReady;
   const request = {
     scopes: ['https://cognitiveservices.azure.com/user_impersonation'],
     account: activeAccount || msalApp.getAllAccounts()[0],
