@@ -1,9 +1,10 @@
 // Minimal service worker: cache the app shell for installability & fast repeat loads.
 // Network calls to Azure OpenAI / Entra ID are never cached (always network).
-const CACHE = 'jta-shell-v3';
+const CACHE = 'jta-shell-v4';
 const SHELL = [
   './',
   './index.html',
+  './auth.html',
   './css/style.css',
   './js/vendor/msal-browser.min.js',
   './js/app.js',

@@ -56,6 +56,8 @@ const els = {
   selectionCanvas: document.getElementById('selection-canvas'),
   cropStage: document.getElementById('crop-stage'),
   btnRetake: document.getElementById('btn-retake'),
+  btnRotateLeft: document.getElementById('btn-rotate-left'),
+  btnRotateRight: document.getElementById('btn-rotate-right'),
   btnResetCrop: document.getElementById('btn-reset-crop'),
   btnAnalyze: document.getElementById('btn-analyze'),
   resultArea: document.getElementById('result-area'),
@@ -119,20 +121,18 @@ function initMsal() {
     auth: {
       clientId: settings.clientId,
       authority: `https://login.microsoftonline.com/${settings.tenantId}`,
-      redirectUri: new URL('./', window.location.href).href,
+      redirectUri: new URL('auth.html', window.location.href).href,
     },
     cache: { cacheLocation: 'localStorage' },
   };
   msalApp = new msal.PublicClientApplication(config);
-  msalReady = msalApp.initialize().then(() =>
-    msalApp.handleRedirectPromise().then(() => {
-      const accounts = msalApp.getAllAccounts();
-      if (accounts.length > 0) {
-        activeAccount = accounts[0];
-      }
-      refreshAccountStatus();
-    })
-  );
+  msalReady = msalApp.initialize().then(() => {
+    const accounts = msalApp.getAllAccounts();
+    if (accounts.length > 0) {
+      activeAccount = accounts[0];
+    }
+    refreshAccountStatus();
+  });
   return msalReady;
 }
 
@@ -198,6 +198,7 @@ let imgLoaded = false;
 let selection = null; // {x,y,w,h} in canvas pixel coords (natural image resolution)
 let dragStart = null;
 let scaleFactor = 1; // displayed size / natural size
+let rotationDegrees = 0;
 
 els.btnPickImage.addEventListener('click', () => els.fileInput.click());
 els.btnRetake.addEventListener('click', () => els.fileInput.click());
@@ -210,6 +211,7 @@ els.fileInput.addEventListener('change', (e) => {
     img = new Image();
     img.onload = () => {
       imgLoaded = true;
+      rotationDegrees = 0;
       setupCanvas();
       els.captureEmpty.classList.add('hidden');
       els.captureEditor.classList.remove('hidden');
@@ -224,28 +226,44 @@ els.fileInput.addEventListener('change', (e) => {
 
 function setupCanvas() {
   const maxW = els.cropStage.clientWidth || 360;
-  const natW = img.naturalWidth;
-  const natH = img.naturalHeight;
-  scaleFactor = Math.min(1, maxW / natW);
-  const dispW = Math.round(natW * scaleFactor);
-  const dispH = Math.round(natH * scaleFactor);
+  const sourceW = img.naturalWidth;
+  const sourceH = img.naturalHeight;
+  const swapsDimensions = rotationDegrees % 180 !== 0;
+  const canvasW = swapsDimensions ? sourceH : sourceW;
+  const canvasH = swapsDimensions ? sourceW : sourceH;
+  scaleFactor = Math.min(1, maxW / canvasW);
+  const dispW = Math.round(canvasW * scaleFactor);
+  const dispH = Math.round(canvasH * scaleFactor);
 
   [els.photoCanvas, els.selectionCanvas].forEach((c) => {
-    c.width = natW;
-    c.height = natH;
+    c.width = canvasW;
+    c.height = canvasH;
     c.style.width = dispW + 'px';
     c.style.height = dispH + 'px';
   });
   els.cropStage.style.height = dispH + 'px';
 
   const ctx = els.photoCanvas.getContext('2d');
-  ctx.clearRect(0, 0, natW, natH);
-  ctx.drawImage(img, 0, 0, natW, natH);
+  ctx.clearRect(0, 0, canvasW, canvasH);
+  ctx.save();
+  ctx.translate(canvasW / 2, canvasH / 2);
+  ctx.rotate(rotationDegrees * Math.PI / 180);
+  ctx.drawImage(img, -sourceW / 2, -sourceH / 2, sourceW, sourceH);
+  ctx.restore();
 
   selection = null;
   drawSelectionOverlay();
   els.btnAnalyze.disabled = true;
 }
+
+function rotateImage(deltaDegrees) {
+  if (!imgLoaded) return;
+  rotationDegrees = (rotationDegrees + deltaDegrees + 360) % 360;
+  setupCanvas();
+}
+
+els.btnRotateLeft.addEventListener('click', () => rotateImage(-90));
+els.btnRotateRight.addEventListener('click', () => rotateImage(90));
 
 function canvasPosFromEvent(e) {
   const rect = els.selectionCanvas.getBoundingClientRect();
