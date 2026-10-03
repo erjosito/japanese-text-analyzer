@@ -121,17 +121,26 @@ function initMsal() {
     auth: {
       clientId: settings.clientId,
       authority: `https://login.microsoftonline.com/${settings.tenantId}`,
-      redirectUri: new URL('auth.html', window.location.href).href,
+      redirectUri: new URL('./', window.location.href).href,
+      navigateToLoginRequestUrl: false,
     },
     cache: { cacheLocation: 'localStorage' },
   };
   msalApp = new msal.PublicClientApplication(config);
-  msalReady = msalApp.initialize().then(() => {
+  msalReady = msalApp.initialize().then(() => msalApp.handleRedirectPromise()).then((response) => {
+    if (response?.account) {
+      activeAccount = response.account;
+    }
     const accounts = msalApp.getAllAccounts();
-    if (accounts.length > 0) {
+    if (!activeAccount && accounts.length > 0) {
       activeAccount = accounts[0];
     }
     refreshAccountStatus();
+    if (localStorage.getItem('jta_auth_pending') === '1') {
+      localStorage.removeItem('jta_auth_pending');
+      openSettingsModal();
+      if (activeAccount) toast('Signed in');
+    }
   });
   return msalReady;
 }
@@ -144,21 +153,25 @@ function refreshAccountStatus() {
   }
 }
 
+function clearStaleMsalInteraction() {
+  sessionStorage.removeItem('msal.interaction.status');
+}
+
 els.btnSignin.addEventListener('click', async () => {
   els.btnSignin.disabled = true;
   els.accountStatus.classList.remove('auth-error');
-  els.accountStatus.textContent = 'Opening Microsoft sign-in...';
+  els.accountStatus.textContent = 'Redirecting to Microsoft sign-in...';
   try {
     if (!msalApp) initMsal();
     if (!msalApp) { toast('Fill in Tenant ID and Client ID first'); return; }
     await msalReady;
-    const result = await msalApp.loginPopup({
+    clearStaleMsalInteraction();
+    localStorage.setItem('jta_auth_pending', '1');
+    await msalApp.loginRedirect({
       scopes: ['https://cognitiveservices.azure.com/user_impersonation'],
     });
-    activeAccount = result.account;
-    refreshAccountStatus();
-    toast('Signed in');
   } catch (err) {
+    localStorage.removeItem('jta_auth_pending');
     console.error(err);
     els.accountStatus.classList.add('auth-error');
     els.accountStatus.textContent = 'Sign-in failed: ' + (err.message || err);
@@ -169,9 +182,10 @@ els.btnSignin.addEventListener('click', async () => {
 
 els.btnSignout.addEventListener('click', async () => {
   if (!msalApp || !activeAccount) return;
-  await msalApp.logoutPopup({ account: activeAccount });
-  activeAccount = null;
-  refreshAccountStatus();
+  await msalApp.logoutRedirect({
+    account: activeAccount,
+    postLogoutRedirectUri: new URL('./', window.location.href).href,
+  });
 });
 
 async function getAccessToken() {
@@ -183,18 +197,18 @@ async function getAccessToken() {
     account: activeAccount || msalApp.getAllAccounts()[0],
   };
   if (!request.account) {
-    const result = await msalApp.loginPopup(request);
-    activeAccount = result.account;
-    refreshAccountStatus();
-    return result.accessToken;
+    clearStaleMsalInteraction();
+    localStorage.setItem('jta_auth_pending', '1');
+    await msalApp.loginRedirect(request);
+    throw new Error('Redirecting to Microsoft sign-in. Tap Analyze again after returning.');
   }
   try {
     const result = await msalApp.acquireTokenSilent(request);
     return result.accessToken;
   } catch (err) {
-    const result = await msalApp.acquireTokenPopup(request);
-    activeAccount = result.account;
-    return result.accessToken;
+    clearStaleMsalInteraction();
+    await msalApp.acquireTokenRedirect(request);
+    throw new Error('Additional sign-in is required. Tap Analyze again after returning.');
   }
 }
 
