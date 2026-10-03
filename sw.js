@@ -1,13 +1,14 @@
 // Minimal service worker: cache the app shell for installability & fast repeat loads.
 // Network calls to Azure OpenAI / Entra ID are never cached (always network).
-const CACHE = 'jta-shell-v4';
+const CACHE = 'jta-shell-v5';
 const SHELL = [
   './',
   './index.html',
   './auth.html',
-  './css/style.css',
+  './css/style.css?v=5',
   './js/vendor/msal-browser.min.js',
-  './js/app.js',
+  './js/vendor/msal-popup-relay.min.js?v=5',
+  './js/app.js?v=5',
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png',
@@ -31,9 +32,15 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
-  // Only handle same-origin GET requests for the app shell; everything else (APIs, auth) goes straight to network.
+  // Keep same-origin app files current while retaining cached offline fallback.
   if (event.request.method !== 'GET' || url.origin !== self.location.origin) return;
   event.respondWith(
-    caches.match(event.request).then((cached) => cached || fetch(event.request))
+    fetch(event.request)
+      .then((response) => {
+        const copy = response.clone();
+        caches.open(CACHE).then((cache) => cache.put(event.request, copy));
+        return response;
+      })
+      .catch(() => caches.match(event.request))
   );
 });

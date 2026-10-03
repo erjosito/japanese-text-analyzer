@@ -145,6 +145,9 @@ function refreshAccountStatus() {
 }
 
 els.btnSignin.addEventListener('click', async () => {
+  els.btnSignin.disabled = true;
+  els.accountStatus.classList.remove('auth-error');
+  els.accountStatus.textContent = 'Opening Microsoft sign-in...';
   try {
     if (!msalApp) initMsal();
     if (!msalApp) { toast('Fill in Tenant ID and Client ID first'); return; }
@@ -157,7 +160,10 @@ els.btnSignin.addEventListener('click', async () => {
     toast('Signed in');
   } catch (err) {
     console.error(err);
-    toast('Sign-in failed: ' + (err.message || err));
+    els.accountStatus.classList.add('auth-error');
+    els.accountStatus.textContent = 'Sign-in failed: ' + (err.message || err);
+  } finally {
+    els.btnSignin.disabled = false;
   }
 });
 
@@ -212,9 +218,9 @@ els.fileInput.addEventListener('change', (e) => {
     img.onload = () => {
       imgLoaded = true;
       rotationDegrees = 0;
-      setupCanvas();
       els.captureEmpty.classList.add('hidden');
       els.captureEditor.classList.remove('hidden');
+      setupCanvas();
       els.resultArea.classList.add('hidden');
       els.resultArea.innerHTML = '';
     };
@@ -260,6 +266,7 @@ function rotateImage(deltaDegrees) {
   if (!imgLoaded) return;
   rotationDegrees = (rotationDegrees + deltaDegrees + 360) % 360;
   setupCanvas();
+  toast(deltaDegrees < 0 ? 'Rotated left' : 'Rotated right', 1200);
 }
 
 els.btnRotateLeft.addEventListener('click', () => rotateImage(-90));

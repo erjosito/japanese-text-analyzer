@@ -28,7 +28,8 @@ already be expected to know.
   Entra ID** account via [MSAL.js](https://github.com/AzureAD/microsoft-authentication-library-for-js)
   and calls Azure OpenAI with your personal delegated token. No secret is
   ever stored — only your Azure OpenAI endpoint, deployment name, tenant ID
-  and app (client) ID are kept in the browser's `localStorage`.
+  and app (client) ID are kept in the browser's `localStorage`. Popup responses
+  return through a dedicated MSAL 5 redirect bridge page (`auth.html`).
 - **Installable (PWA)**: `manifest.webmanifest` + `sw.js` let you "Add to Home
   screen" on both the Samsung S24 and the Lenovo tablet, so it behaves like an
   app icon, full-screen, works from any browser without an app-store install.

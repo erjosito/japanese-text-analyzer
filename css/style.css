@@ -170,6 +170,7 @@ main { padding: 1rem; max-width: 760px; margin: 0 auto; padding-bottom: 4rem; }
 .grammar-item .pattern { font-weight: 600; color: var(--accent); }
 
 .muted { color: var(--muted); font-size: 0.85rem; }
+.auth-error { color: #ff9f9f; }
 
 .loading {
   text-align: center;

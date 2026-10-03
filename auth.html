@@ -6,6 +6,18 @@
 <title>Completing sign-in</title>
 </head>
 <body>
-Completing sign-in...
+<p id="status">Opening Microsoft sign-in...</p>
+<script src="js/vendor/msal-popup-relay.min.js?v=5"></script>
+<script>
+  try {
+    msalPopupRelay.runPopupRelay({
+      allowedAuthorityOrigins: ['https://login.microsoftonline.com'],
+    });
+  } catch (error) {
+    console.error(error);
+    document.getElementById('status').textContent =
+      'Sign-in could not start: ' + (error.message || error);
+  }
+</script>
 </body>
 </html>
