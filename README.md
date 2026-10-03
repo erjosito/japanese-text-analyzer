@@ -3,9 +3,9 @@
 A installable web app (PWA) that lets you photograph Japanese text, crop a
 rectangular region, and get an AI-powered breakdown tailored to your JLPT level:
 
-- Full translation
+- Recognized text and translation with the photographed line layout preserved
 - A list of the most important words (with reading/romaji/meaning)
-- Kanji decomposition for multi-kanji words (each kanji + reading + meaning)
+- Expandable kanji decomposition below each multi-kanji vocabulary word
 - Explanation of the relevant grammar points
 
 The explanation depth adapts to the **JLPT level** you pick on the main screen

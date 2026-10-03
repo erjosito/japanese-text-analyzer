@@ -157,6 +157,7 @@ main { padding: 1rem; max-width: 760px; margin: 0 auto; padding-bottom: 4rem; }
   letter-spacing: 0.04em;
 }
 .jp-text { font-size: 1.15rem; line-height: 1.9; }
+.text-block { white-space: pre-wrap; }
 .word-list { list-style: none; padding: 0; margin: 0; }
 .word-list li {
   padding: 0.5rem 0;
@@ -166,6 +167,20 @@ main { padding: 1rem; max-width: 760px; margin: 0 auto; padding-bottom: 4rem; }
 .word-main { font-size: 1.1rem; font-weight: 600; }
 .word-reading { color: var(--muted); margin-left: 0.4rem; font-size: 0.9rem; }
 .word-meaning { margin-top: 0.15rem; }
+
+.kanji-details {
+  background: var(--panel-2);
+  border-radius: 8px;
+  margin-top: 0.55rem;
+  padding: 0.4rem 0.55rem;
+}
+.kanji-details summary {
+  color: var(--accent-2);
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.kanji-details[open] summary { margin-bottom: 0.4rem; }
 
 .kanji-chip {
   display: inline-flex;

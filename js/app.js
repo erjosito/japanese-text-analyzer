@@ -380,8 +380,8 @@ function buildPrompt(level) {
   return `You are a Japanese language tutor analyzing a photo of Japanese text for a learner at ${levelLabel}.
 Respond with ONLY a single valid JSON object (no markdown fences, no extra commentary) matching exactly this shape:
 {
-  "sourceText": "the Japanese text exactly as read from the image",
-  "translation": "a natural, fluent English translation of the full text",
+  "sourceText": "the Japanese text exactly as read from the image, preserving its original line breaks with \\n",
+  "translation": "a natural, fluent English translation preserving the same line-by-line structure with \\n",
   "words": [
     {"word": "...", "reading": "... (hiragana reading)", "romaji": "...", "meaning": "short English meaning", "partOfSpeech": "..."}
   ],
@@ -396,8 +396,10 @@ Respond with ONLY a single valid JSON object (no markdown fences, no extra comme
 }
 
 Rules for tailoring to the learner's level (${levelLabel}):
+- Preserve the visible line breaks from the image in "sourceText". Encode line breaks as \\n inside the JSON string.
+- Preserve corresponding line breaks in "translation", translating each source line in the same order so the two blocks are easy to compare.
 - "words": only include words that are genuinely useful/important to learn for someone at this level. Skip words that are trivially basic for this level (e.g. for N2/N1 learners, skip elementary particles or very common N5 vocabulary already assumed known). For N5 learners, include most content words since everything is new.
-- "kanjiBreakdown": only include entries for words composed of two or more kanji characters, decomposed into their individual kanji. Skip this decomposition for kanji that would already be well known at the learner's level (e.g. do not decompose extremely common kanji for N1 learners); focus on kanji at or above their current level.
+- "kanjiBreakdown": only include entries for words composed of two or more kanji characters, decomposed into their individual kanji. Every "kanjiBreakdown" word must also appear exactly in "words". Skip this decomposition for kanji that would already be well known at the learner's level (e.g. do not decompose extremely common kanji for N1 learners); focus on kanji at or above their current level.
 - "grammar": only explain grammar points that are at or above the learner's current level (i.e. things they likely do NOT already know). Do not explain grammar that is more basic than their level.
 - If the text is very short or simple, it is fine for "words", "kanjiBreakdown", or "grammar" to be empty arrays.
 - All explanations should be written in English.
@@ -482,41 +484,50 @@ function esc(s) {
   return d.innerHTML;
 }
 
+function renderKanjiDetails(breakdowns) {
+  if (!breakdowns.length) return '';
+  let html = `<details class="kanji-details"><summary>Kanji breakdown</summary>`;
+  for (const kb of breakdowns) {
+    html += `<div>`;
+    for (const k of kb.kanji || []) {
+      html += `<span class="kanji-chip"><span class="kanji-char">${esc(k.char)}</span>`
+        + `<span class="kanji-detail">${esc(k.onyomi || '')}${k.kunyomi ? ' / ' + esc(k.kunyomi) : ''} — ${esc(k.meaning || '')}</span></span>`;
+    }
+    const notes = (kb.kanji || []).filter(k => k.note).map(k => `${esc(k.char)}: ${esc(k.note)}`);
+    if (notes.length) html += `<div class="muted">${notes.join(' · ')}</div>`;
+    html += `</div>`;
+  }
+  return html + `</details>`;
+}
+
 function renderResult(r) {
   const showFurigana = settings.furigana;
   const showRomaji = settings.romaji;
   let html = '';
 
   if (r.sourceText) {
-    html += `<div class="result-card"><h3>Recognized text</h3><div class="jp-text">${esc(r.sourceText)}</div></div>`;
+    html += `<div class="result-card"><h3>Recognized text</h3><div class="jp-text text-block">${esc(r.sourceText)}</div></div>`;
   }
 
-  html += `<div class="result-card"><h3>Translation</h3><div>${esc(r.translation || '—')}</div></div>`;
+  html += `<div class="result-card"><h3>Translation</h3><div class="text-block">${esc(r.translation || '—')}</div></div>`;
 
   if (r.words && r.words.length) {
+    const breakdownByWord = new Map();
+    for (const kb of r.kanjiBreakdown || []) {
+      const entries = breakdownByWord.get(kb.word) || [];
+      entries.push(kb);
+      breakdownByWord.set(kb.word, entries);
+    }
     html += `<div class="result-card"><h3>Important words</h3><ul class="word-list">`;
     for (const w of r.words) {
       html += `<li><span class="word-main">${esc(w.word)}</span>`;
       if (showFurigana && w.reading) html += `<span class="word-reading">${esc(w.reading)}</span>`;
       if (showRomaji && w.romaji) html += `<span class="word-reading">[${esc(w.romaji)}]</span>`;
-      html += `<div class="word-meaning">${esc(w.meaning || '')}${w.partOfSpeech ? ` <span class="muted">(${esc(w.partOfSpeech)})</span>` : ''}</div></li>`;
+      html += `<div class="word-meaning">${esc(w.meaning || '')}${w.partOfSpeech ? ` <span class="muted">(${esc(w.partOfSpeech)})</span>` : ''}</div>`;
+      html += renderKanjiDetails(breakdownByWord.get(w.word) || []);
+      html += `</li>`;
     }
     html += `</ul></div>`;
-  }
-
-  if (r.kanjiBreakdown && r.kanjiBreakdown.length) {
-    html += `<div class="result-card"><h3>Kanji breakdown</h3>`;
-    for (const kb of r.kanjiBreakdown) {
-      html += `<p><strong>${esc(kb.word)}</strong></p><div>`;
-      for (const k of kb.kanji || []) {
-        html += `<span class="kanji-chip"><span class="kanji-char">${esc(k.char)}</span>`
-          + `<span class="kanji-detail">${esc(k.onyomi || '')}${k.kunyomi ? ' / ' + esc(k.kunyomi) : ''} — ${esc(k.meaning || '')}</span></span>`;
-      }
-      html += `</div>`;
-      const notes = (kb.kanji || []).filter(k => k.note).map(k => `${esc(k.char)}: ${esc(k.note)}`);
-      if (notes.length) html += `<p class="muted">${notes.join(' · ')}</p>`;
-    }
-    html += `</div>`;
   }
 
   if (r.grammar && r.grammar.length) {
