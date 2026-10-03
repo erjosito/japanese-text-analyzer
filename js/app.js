@@ -34,6 +34,8 @@ let settings = loadSettings();
 const els = {
   btnSettings: document.getElementById('btn-settings'),
   btnAccount: document.getElementById('btn-account'),
+  accountIndicator: document.getElementById('account-indicator'),
+  accountLabel: document.getElementById('account-label'),
   settingsModal: document.getElementById('settings-modal'),
   btnCloseSettings: document.getElementById('btn-close-settings'),
   btnSaveSettings: document.getElementById('btn-save-settings'),
@@ -145,16 +147,22 @@ function initMsal() {
   return msalReady;
 }
 
-function refreshAccountStatus() {
-  if (activeAccount) {
-    els.accountStatus.textContent = `Signed in as ${activeAccount.username}`;
-    els.btnAccount.textContent = activeAccount.name || activeAccount.username;
-    els.btnAccount.title = `Signed in as ${activeAccount.username}`;
+function setAccountDisplay(account) {
+  if (account) {
+    els.accountStatus.textContent = `Signed in as ${account.username}`;
+    els.accountLabel.textContent = account.name || account.username;
+    els.accountIndicator.classList.add('authenticated');
+    els.btnAccount.title = `Signed in as ${account.username}`;
   } else {
     els.accountStatus.textContent = 'Not signed in';
-    els.btnAccount.textContent = 'Sign in';
+    els.accountLabel.textContent = 'Sign in';
+    els.accountIndicator.classList.remove('authenticated');
     els.btnAccount.title = 'Sign in';
   }
+}
+
+function refreshAccountStatus() {
+  setAccountDisplay(activeAccount);
 }
 
 function clearStaleMsalInteraction() {

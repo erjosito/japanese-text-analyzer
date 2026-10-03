@@ -40,16 +40,33 @@ html, body {
 .header-actions { display: flex; gap: 0.5rem; }
 
 .account-btn {
+  align-items: center;
   background: var(--panel-2);
   border: 1px solid var(--border);
   border-radius: 8px;
   color: var(--text);
   cursor: pointer;
+  display: inline-flex;
+  gap: 0.35rem;
   max-width: 11rem;
-  overflow: hidden;
   padding: 0.4rem 0.65rem;
+}
+.account-btn #account-label {
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.account-indicator {
+  background: var(--muted);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 50%;
+  flex: 0 0 auto;
+  height: 0.55rem;
+  width: 0.55rem;
+}
+.account-indicator.authenticated {
+  background: #4fd17d;
+  box-shadow: 0 0 0.35rem rgba(79, 209, 125, 0.65);
 }
 
 .icon-btn {

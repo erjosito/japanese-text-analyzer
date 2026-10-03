@@ -8,13 +8,17 @@
 <link rel="manifest" href="manifest.webmanifest" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
-<link rel="stylesheet" href="css/style.css?v=8" />
+<link rel="stylesheet" href="css/style.css?v=9" />
 </head>
 <body>
 <header class="app-header">
   <h1>日本語 Text Analyzer</h1>
   <div class="header-actions">
-    <button id="btn-account" class="account-btn" title="Sign in or view account">Sign in</button>
+    <button id="btn-account" class="account-btn" title="Sign in or view account">
+      <span id="account-indicator" class="account-indicator" aria-hidden="true"></span>
+      <span aria-hidden="true">👤</span>
+      <span id="account-label">Sign in</span>
+    </button>
     <button id="btn-settings" class="icon-btn" title="Settings">⚙️</button>
   </div>
 </header>
@@ -102,6 +106,6 @@
 <div id="toast" class="toast hidden"></div>
 
 <script src="js/vendor/msal-browser.min.js"></script>
-<script src="js/app.js?v=8"></script>
+<script src="js/app.js?v=9"></script>
 </body>
 </html>
