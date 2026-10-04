@@ -383,6 +383,81 @@ const LEVEL_LABELS = {
   N1: 'JLPT N1 (advanced)',
 };
 
+function getAnalysisResponseFormat() {
+  const stringProperty = { type: 'string' };
+  return {
+    type: 'json_schema',
+    json_schema: {
+      name: 'japanese_text_analysis',
+      strict: true,
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['sourceText', 'sourceWithFurigana', 'translation', 'words', 'kanjiBreakdown', 'grammar'],
+        properties: {
+          sourceText: stringProperty,
+          sourceWithFurigana: stringProperty,
+          translation: stringProperty,
+          words: {
+            type: 'array',
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['word', 'reading', 'romaji', 'meaning', 'partOfSpeech'],
+              properties: {
+                word: stringProperty,
+                reading: stringProperty,
+                romaji: stringProperty,
+                meaning: stringProperty,
+                partOfSpeech: stringProperty,
+              },
+            },
+          },
+          kanjiBreakdown: {
+            type: 'array',
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['word', 'kanji'],
+              properties: {
+                word: stringProperty,
+                kanji: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    additionalProperties: false,
+                    required: ['char', 'onyomi', 'kunyomi', 'meaning', 'note'],
+                    properties: {
+                      char: stringProperty,
+                      onyomi: stringProperty,
+                      kunyomi: stringProperty,
+                      meaning: stringProperty,
+                      note: stringProperty,
+                    },
+                  },
+                },
+              },
+            },
+          },
+          grammar: {
+            type: 'array',
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['pattern', 'excerpt', 'explanation'],
+              properties: {
+                pattern: stringProperty,
+                excerpt: stringProperty,
+                explanation: stringProperty,
+              },
+            },
+          },
+        },
+      },
+    },
+  };
+}
+
 function buildPrompt(level) {
   const levelLabel = LEVEL_LABELS[level] || level;
   return `You are a Japanese language tutor analyzing a photo of Japanese text for a learner at ${levelLabel}.
@@ -432,7 +507,42 @@ function parseModelJson(raw) {
   let text = raw.trim();
   // strip markdown code fences if present
   text = text.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
-  return JSON.parse(text);
+  try {
+    return JSON.parse(text);
+  } catch (err) {
+    throw new Error(
+      `Azure returned a complete response that was not valid JSON (${text.length} characters). `
+      + `Please retry the analysis; if it happens repeatedly, select a smaller text region. `
+      + `Technical detail: ${err.message}`
+    );
+  }
+}
+
+function parseAnalysisResponse(data) {
+  const choice = data.choices?.[0];
+  if (!choice) {
+    throw new Error('Azure returned no analysis result. Please retry.');
+  }
+  if (choice.finish_reason === 'length') {
+    throw new Error(
+      'The analysis was too long and Azure cut it off before completion. '
+      + 'Select a smaller text region or choose a higher JLPT level so fewer basic words and grammar points are explained.'
+    );
+  }
+  if (choice.finish_reason === 'content_filter') {
+    throw new Error('Azure content filtering stopped the analysis. Try a smaller region containing only the Japanese exercise or passage.');
+  }
+  if (choice.finish_reason && choice.finish_reason !== 'stop') {
+    throw new Error(`Azure stopped the analysis unexpectedly (${choice.finish_reason}). Please retry.`);
+  }
+  if (choice.message?.refusal) {
+    throw new Error(`Azure declined to analyze this image: ${choice.message.refusal}`);
+  }
+  const content = choice.message?.content;
+  if (!content) {
+    throw new Error('Azure returned an empty analysis. Please retry.');
+  }
+  return parseModelJson(content);
 }
 
 async function analyze() {
@@ -459,7 +569,8 @@ async function analyze() {
           ],
         },
       ],
-      max_completion_tokens: 3000,
+      max_completion_tokens: 6000,
+      response_format: getAnalysisResponseFormat(),
     };
 
     const resp = await fetch(url, {
@@ -476,9 +587,7 @@ async function analyze() {
       throw new Error(`HTTP ${resp.status}: ${errText}`);
     }
     const data = await resp.json();
-    const content = data.choices?.[0]?.message?.content;
-    if (!content) throw new Error('Empty response from model');
-    const parsed = parseModelJson(content);
+    const parsed = parseAnalysisResponse(data);
     renderResult(parsed);
   } catch (err) {
     console.error(err);

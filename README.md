@@ -23,7 +23,8 @@ already be expected to know.
   cropped region is sent to the model (cheaper, more private, more accurate
   OCR than the whole photo).
 - **AI backend**: your own **Azure OpenAI** resource (GPT vision model). The
-  app calls the Chat Completions REST API directly from the browser.
+  app calls the Chat Completions REST API directly from the browser and uses
+  strict JSON Schema output so analysis responses remain machine-readable.
 - **Authentication**: this Azure environment enforces "no API keys" (local
   auth disabled by policy), so the app signs you in with your **Microsoft
   Entra ID** account via [MSAL.js](https://github.com/AzureAD/microsoft-authentication-library-for-js)
