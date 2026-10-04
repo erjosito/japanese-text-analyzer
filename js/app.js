@@ -50,6 +50,7 @@ const els = {
   btnSignout: document.getElementById('btn-signout'),
   accountStatus: document.getElementById('account-status'),
   levelSelect: document.getElementById('level-select'),
+  analysisModeSelect: document.getElementById('analysis-mode-select'),
   captureEmpty: document.getElementById('capture-empty'),
   captureEditor: document.getElementById('capture-editor'),
   btnPickImage: document.getElementById('btn-pick-image'),
@@ -231,6 +232,8 @@ let selection = null; // {x,y,w,h} in canvas pixel coords (natural image resolut
 let dragStart = null;
 let scaleFactor = 1; // displayed size / natural size
 let rotationDegrees = 0;
+let currentAnalysis = null;
+let currentExerciseDraftKey = null;
 
 els.btnPickImage.addEventListener('click', () => els.fileInput.click());
 els.btnRetake.addEventListener('click', () => els.fileInput.click());
@@ -393,8 +396,39 @@ function getAnalysisResponseFormat() {
       schema: {
         type: 'object',
         additionalProperties: false,
-        required: ['sourceText', 'sourceWithFurigana', 'translation', 'words', 'kanjiBreakdown', 'grammar'],
+        required: ['contentType', 'exercise', 'sourceText', 'sourceWithFurigana', 'translation', 'words', 'kanjiBreakdown', 'grammar'],
         properties: {
+          contentType: { type: 'string', enum: ['reading', 'exercise'] },
+          exercise: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['instructions', 'exerciseType', 'detectionConfidence', 'uncertainty', 'questions'],
+            properties: {
+              instructions: stringProperty,
+              exerciseType: {
+                type: 'string',
+                enum: ['none', 'multiple_choice', 'fill_blank', 'conjugation', 'reorder', 'translation', 'reading_comprehension', 'free_text', 'mixed'],
+              },
+              detectionConfidence: { type: 'number' },
+              uncertainty: stringProperty,
+              questions: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  additionalProperties: false,
+                  required: ['id', 'prompt', 'answerType', 'choices', 'context', 'confidence'],
+                  properties: {
+                    id: stringProperty,
+                    prompt: stringProperty,
+                    answerType: { type: 'string', enum: ['multiple_choice', 'text'] },
+                    choices: { type: 'array', items: stringProperty },
+                    context: stringProperty,
+                    confidence: { type: 'number' },
+                  },
+                },
+              },
+            },
+          },
           sourceText: stringProperty,
           sourceWithFurigana: stringProperty,
           translation: stringProperty,
@@ -458,11 +492,72 @@ function getAnalysisResponseFormat() {
   };
 }
 
-function buildPrompt(level) {
+function getCorrectionResponseFormat() {
+  const stringProperty = { type: 'string' };
+  return {
+    type: 'json_schema',
+    json_schema: {
+      name: 'japanese_exercise_correction',
+      strict: true,
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['summary', 'results'],
+        properties: {
+          summary: stringProperty,
+          results: {
+            type: 'array',
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['id', 'status', 'correctedAnswer', 'explanation', 'alternatives', 'confidence'],
+              properties: {
+                id: stringProperty,
+                status: {
+                  type: 'string',
+                  enum: ['correct', 'partially_correct', 'incorrect', 'cannot_determine'],
+                },
+                correctedAnswer: stringProperty,
+                explanation: stringProperty,
+                alternatives: { type: 'array', items: stringProperty },
+                confidence: { type: 'number' },
+              },
+            },
+          },
+        },
+      },
+    },
+  };
+}
+
+function buildPrompt(level, requestedMode) {
   const levelLabel = LEVEL_LABELS[level] || level;
+  const modeInstruction = {
+    auto: 'Determine whether the image is ordinary reading text or a textbook exercise.',
+    reading: 'Treat the image as ordinary reading text, even if it resembles an exercise.',
+    exercise: 'Treat the image as a textbook exercise and extract its questions.',
+  }[requestedMode] || 'Determine whether the image is ordinary reading text or a textbook exercise.';
   return `You are a Japanese language tutor analyzing a photo of Japanese text for a learner at ${levelLabel}.
+${modeInstruction}
 Respond with ONLY a single valid JSON object (no markdown fences, no extra commentary) matching exactly this shape:
 {
+  "contentType": "reading or exercise",
+  "exercise": {
+    "instructions": "exercise instructions, or an empty string for reading text",
+    "exerciseType": "none, multiple_choice, fill_blank, conjugation, reorder, translation, reading_comprehension, free_text, or mixed",
+    "detectionConfidence": 0.0,
+    "uncertainty": "what is unclear about the exercise extraction, or an empty string",
+    "questions": [
+      {
+        "id": "stable short ID such as q1",
+        "prompt": "question text exactly enough for the learner to answer",
+        "answerType": "multiple_choice or text",
+        "choices": ["choice text when present"],
+        "context": "passage or local context required to answer, or an empty string",
+        "confidence": 0.0
+      }
+    ]
+  },
   "sourceText": "the Japanese text exactly as read from the image, preserving its original line breaks with \\n",
   "sourceWithFurigana": "the same text and line breaks, annotating kanji words as {surface|hiragana reading}, for example {日本語|にほんご}",
   "translation": "a natural, fluent English translation preserving the same line-by-line structure with \\n",
@@ -480,6 +575,10 @@ Respond with ONLY a single valid JSON object (no markdown fences, no extra comme
 }
 
 Rules for tailoring to the learner's level (${levelLabel}):
+- For ordinary reading text, set "contentType" to "reading", "exerciseType" to "none", and "questions" to an empty array.
+- For a textbook exercise, set "contentType" to "exercise" and extract every visible question in reading order. Never include, infer, or reveal correct answers in the extraction response.
+- Use "multiple_choice" only when visible choices exist; otherwise use "text". Reorder, fill-in, conjugation, translation, comprehension, and free-response questions all use a text answer field in this first version.
+- If classification or question extraction is uncertain, explain that briefly in "uncertainty" and lower the relevant confidence. Do not invent missing text.
 - Preserve the visible line breaks from the image in "sourceText". Encode line breaks as \\n inside the JSON string.
 - In "sourceWithFurigana", reproduce the exact same text and line breaks as "sourceText", adding readings only with {kanji-containing surface text|hiragana reading}. Do not change or omit any source characters outside those annotations.
 - Preserve corresponding line breaks in "translation", translating each source line in the same order so the two blocks are easy to compare.
@@ -545,6 +644,25 @@ function parseAnalysisResponse(data) {
   return parseModelJson(content);
 }
 
+function parseCorrectionResponse(data) {
+  const choice = data.choices?.[0];
+  if (!choice) throw new Error('Azure returned no correction result. Please retry.');
+  if (choice.finish_reason === 'length') {
+    throw new Error('The correction was too long and Azure cut it off. Try submitting fewer questions at once.');
+  }
+  if (choice.finish_reason === 'content_filter') {
+    throw new Error('Azure content filtering stopped the correction request.');
+  }
+  if (choice.finish_reason && choice.finish_reason !== 'stop') {
+    throw new Error(`Azure stopped the correction unexpectedly (${choice.finish_reason}). Please retry.`);
+  }
+  if (choice.message?.refusal) {
+    throw new Error(`Azure declined to correct this exercise: ${choice.message.refusal}`);
+  }
+  if (!choice.message?.content) throw new Error('Azure returned an empty correction. Please retry.');
+  return parseModelJson(choice.message.content);
+}
+
 async function analyze() {
   if (!settings.endpoint || !settings.deployment) {
     toast('Open Settings and configure the Azure OpenAI endpoint/deployment first');
@@ -556,7 +674,7 @@ async function analyze() {
     const token = await getAccessToken();
     const dataUrl = getCroppedDataUrl();
     const level = els.levelSelect.value;
-    const prompt = buildPrompt(level);
+    const prompt = buildPrompt(level, els.analysisModeSelect.value);
 
     const url = `${settings.endpoint}/openai/deployments/${encodeURIComponent(settings.deployment)}/chat/completions?api-version=${encodeURIComponent(settings.apiVersion)}`;
     const body = {
@@ -633,7 +751,192 @@ function renderKanjiDetails(breakdowns) {
   return html + `</details>`;
 }
 
+function exerciseDraftKey(analysis) {
+  let hash = 2166136261;
+  const text = `${analysis.sourceText}|${analysis.exercise.questions.map((q) => q.id).join('|')}`;
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `jta_exercise_draft_${(hash >>> 0).toString(16)}`;
+}
+
+function loadExerciseDraft(key) {
+  try {
+    return JSON.parse(localStorage.getItem(key) || '{}');
+  } catch {
+    return {};
+  }
+}
+
+function collectExerciseAnswers() {
+  if (!currentAnalysis?.exercise?.questions) return {};
+  const answers = {};
+  currentAnalysis.exercise.questions.forEach((question, index) => {
+    if (question.answerType === 'multiple_choice') {
+      const selected = document.querySelector(`input[name="exercise-q-${index}"]:checked`);
+      answers[question.id] = selected ? selected.value : '';
+    } else {
+      answers[question.id] = document.querySelector(`[data-exercise-answer="${index}"]`)?.value.trim() || '';
+    }
+  });
+  return answers;
+}
+
+function saveExerciseDraft() {
+  if (!currentExerciseDraftKey) return;
+  localStorage.setItem(currentExerciseDraftKey, JSON.stringify(collectExerciseAnswers()));
+}
+
+function renderExerciseCard(analysis) {
+  const exercise = analysis.exercise;
+  if (analysis.contentType !== 'exercise' || !exercise) return '';
+
+  currentExerciseDraftKey = exerciseDraftKey(analysis);
+  const draft = loadExerciseDraft(currentExerciseDraftKey);
+  const confidence = Math.round(Math.max(0, Math.min(1, exercise.detectionConfidence || 0)) * 100);
+  let html = `<div class="result-card exercise-card"><h3>Exercise</h3>`;
+  if (exercise.instructions) html += `<div class="jp-text text-block">${esc(exercise.instructions)}</div>`;
+  html += `<div class="exercise-meta">${esc(exercise.exerciseType.replaceAll('_', ' '))} · detection confidence ${confidence}%`;
+  if (exercise.uncertainty) html += `<br />Uncertainty: ${esc(exercise.uncertainty)}`;
+  html += `</div><div id="exercise-feedback-summary"></div>`;
+  if (!exercise.questions.length) {
+    return html + `<div class="error-box">This looks like an exercise, but no answerable questions could be extracted. Try selecting a tighter region or choose Textbook exercise mode.</div></div>`;
+  }
+
+  exercise.questions.forEach((question, index) => {
+    const savedAnswer = draft[question.id] || '';
+    html += `<div class="exercise-question">`;
+    html += `<div class="exercise-prompt"><strong>${index + 1}.</strong> ${esc(question.prompt)}</div>`;
+    if (question.context) html += `<div class="muted text-block">${esc(question.context)}</div>`;
+    if (question.answerType === 'multiple_choice' && question.choices.length) {
+      question.choices.forEach((choice, choiceIndex) => {
+        const checked = savedAnswer === choice ? ' checked' : '';
+        html += `<label class="exercise-choice"><input type="radio" name="exercise-q-${index}" value="${choiceIndex}" data-choice-index="${choiceIndex}"${checked} /> <span>${esc(choice)}</span></label>`;
+      });
+    } else {
+      html += `<textarea class="exercise-answer" data-exercise-answer="${index}" placeholder="Enter your answer">${esc(savedAnswer)}</textarea>`;
+    }
+    html += `<div class="exercise-feedback-slot" id="exercise-feedback-${index}"></div></div>`;
+  });
+  html += `<div class="exercise-actions"><button id="btn-submit-exercise" class="primary-btn">Check answers</button></div></div>`;
+  return html;
+}
+
+function wireExerciseControls() {
+  const exercise = currentAnalysis?.exercise;
+  if (currentAnalysis?.contentType !== 'exercise' || !exercise?.questions?.length) return;
+  exercise.questions.forEach((question, index) => {
+    if (question.answerType === 'multiple_choice') {
+      document.querySelectorAll(`input[name="exercise-q-${index}"]`).forEach((input) => {
+        const choiceIndex = Number(input.dataset.choiceIndex);
+        input.value = question.choices[choiceIndex] || '';
+        input.addEventListener('change', saveExerciseDraft);
+      });
+    } else {
+      document.querySelector(`[data-exercise-answer="${index}"]`)?.addEventListener('input', saveExerciseDraft);
+    }
+  });
+  document.getElementById('btn-submit-exercise')?.addEventListener('click', gradeExercise);
+}
+
+function buildCorrectionPrompt(analysis, answers, level) {
+  const exerciseData = {
+    sourceText: analysis.sourceText,
+    instructions: analysis.exercise.instructions,
+    exerciseType: analysis.exercise.exerciseType,
+    questions: analysis.exercise.questions.map((question) => ({
+      id: question.id,
+      prompt: question.prompt,
+      context: question.context,
+      choices: question.choices,
+      learnerAnswer: answers[question.id] || '',
+    })),
+  };
+  return `You are a careful Japanese tutor correcting a learner at ${LEVEL_LABELS[level] || level}.
+Assess the learner's submitted answers to the exercise data below.
+
+Rules:
+- Do not require exact string matching when multiple Japanese answers are valid.
+- For translation or composition, use a rubric based on meaning, grammar, naturalness, and whether the prompt was fulfilled.
+- Use "cannot_determine" if the image did not contain enough information to know the textbook's intended answer.
+- Give concise, constructive explanations appropriate for the learner's level.
+- Include a corrected or suggested answer for incorrect or partially correct responses.
+- List genuinely acceptable alternatives, not merely paraphrases.
+- Keep each result ID exactly equal to its question ID.
+
+Exercise data:
+${JSON.stringify(exerciseData)}`;
+}
+
+function renderExerciseFeedback(feedback) {
+  const summary = document.getElementById('exercise-feedback-summary');
+  if (summary) {
+    summary.innerHTML = `<div class="exercise-feedback"><strong>Overall feedback</strong><div>${esc(feedback.summary)}</div></div>`;
+  }
+  const byId = new Map((feedback.results || []).map((result) => [result.id, result]));
+  currentAnalysis.exercise.questions.forEach((question, index) => {
+    const result = byId.get(question.id);
+    const slot = document.getElementById(`exercise-feedback-${index}`);
+    if (!slot || !result) return;
+    const label = result.status.replaceAll('_', ' ');
+    const confidence = Math.round(Math.max(0, Math.min(1, result.confidence || 0)) * 100);
+    let html = `<div class="exercise-feedback ${esc(result.status)}"><div class="feedback-status">${esc(label)}</div>`;
+    if (result.correctedAnswer) html += `<div><strong>Suggested answer:</strong> ${esc(result.correctedAnswer)}</div>`;
+    html += `<div>${esc(result.explanation)}</div>`;
+    if (result.alternatives?.length) html += `<div class="muted">Also acceptable: ${result.alternatives.map(esc).join(' · ')}</div>`;
+    html += `<div class="muted">Confidence: ${confidence}%</div></div>`;
+    slot.innerHTML = html;
+  });
+}
+
+async function gradeExercise() {
+  const button = document.getElementById('btn-submit-exercise');
+  const answers = collectExerciseAnswers();
+  if (!Object.values(answers).some(Boolean)) {
+    toast('Enter at least one answer before checking.');
+    return;
+  }
+  saveExerciseDraft();
+  button.disabled = true;
+  button.textContent = 'Checking...';
+  try {
+    const token = await getAccessToken();
+    const url = `${settings.endpoint}/openai/deployments/${encodeURIComponent(settings.deployment)}/chat/completions?api-version=${encodeURIComponent(settings.apiVersion)}`;
+    const body = {
+      messages: [{
+        role: 'user',
+        content: buildCorrectionPrompt(currentAnalysis, answers, els.levelSelect.value),
+      }],
+      max_completion_tokens: 3000,
+      response_format: getCorrectionResponseFormat(),
+    };
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(body),
+    });
+    if (!resp.ok) {
+      const errText = await resp.text();
+      throw new Error(`HTTP ${resp.status}: ${errText}`);
+    }
+    renderExerciseFeedback(parseCorrectionResponse(await resp.json()));
+  } catch (err) {
+    console.error(err);
+    const summary = document.getElementById('exercise-feedback-summary');
+    if (summary) summary.innerHTML = `<div class="error-box">Correction failed:\n${esc(err.message || err)}</div>`;
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Check answers';
+  }
+}
+
 function renderResult(r) {
+  currentAnalysis = r;
+  currentExerciseDraftKey = null;
   const showFurigana = settings.furigana;
   const showRomaji = settings.romaji;
   let html = '';
@@ -650,6 +953,8 @@ function renderResult(r) {
     }
     html += `</div>`;
   }
+
+  html += renderExerciseCard(r);
 
   html += `<div class="result-card"><h3>Translation</h3><div class="text-block">${esc(r.translation || '—')}</div></div>`;
 
@@ -692,11 +997,14 @@ function renderResult(r) {
       document.getElementById('source-furigana').classList.toggle('hidden', !furiganaToggle.checked);
     });
   }
+  wireExerciseControls();
 }
 
 // ---------- init ----------
 els.levelSelect.value = localStorage.getItem('jta_level') || 'N3';
 els.levelSelect.addEventListener('change', () => localStorage.setItem('jta_level', els.levelSelect.value));
+els.analysisModeSelect.value = localStorage.getItem('jta_analysis_mode') || 'auto';
+els.analysisModeSelect.addEventListener('change', () => localStorage.setItem('jta_analysis_mode', els.analysisModeSelect.value));
 
 initMsal();
 

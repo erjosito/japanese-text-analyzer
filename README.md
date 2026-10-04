@@ -8,6 +8,8 @@ rectangular region, and get an AI-powered breakdown tailored to your JLPT level:
 - A list of the most important words (with reading/romaji/meaning)
 - Expandable kanji decomposition below each multi-kanji vocabulary word
 - Explanation of the relevant grammar points
+- Automatic textbook-exercise detection with answer fields, saved drafts, and
+  AI correction after submission
 
 The explanation depth adapts to the **JLPT level** you pick on the main screen
 (N5 → N1): more advanced levels skip explanations of vocabulary/grammar you'd
@@ -25,6 +27,11 @@ already be expected to know.
 - **AI backend**: your own **Azure OpenAI** resource (GPT vision model). The
   app calls the Chat Completions REST API directly from the browser and uses
   strict JSON Schema output so analysis responses remain machine-readable.
+- **Exercise mode**: Auto-detect distinguishes normal passages from textbook
+  exercises. You can force Reading text or Textbook exercise mode before
+  analyzing. Detected questions become multiple-choice or typed-answer fields;
+  answers stay in browser storage and are sent for correction only when you
+  tap **Check answers**.
 - **Authentication**: this Azure environment enforces "no API keys" (local
   auth disabled by policy), so the app signs you in with your **Microsoft
   Entra ID** account via [MSAL.js](https://github.com/AzureAD/microsoft-authentication-library-for-js)
@@ -62,8 +69,8 @@ will fail with a redirect URI mismatch.
 3. Tap **Save**.
 4. (Optional) Tap the browser menu → **Install app** / **Add to Home screen**
    so it opens full-screen like a native app.
-5. Pick your JLPT level on the main screen, take/choose a photo, drag to
-   select the text region, and tap **Analyze**.
+5. Pick your JLPT level and analysis mode, take/choose a photo, drag to select
+   the text region, and tap **Analyze**.
 
 ## Local development
 

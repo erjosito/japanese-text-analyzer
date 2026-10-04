@@ -8,7 +8,7 @@
 <link rel="manifest" href="manifest.webmanifest" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
-<link rel="stylesheet" href="css/style.css?v=12" />
+<link rel="stylesheet" href="css/style.css?v=13" />
 </head>
 <body>
 <header class="app-header">
@@ -24,15 +24,23 @@
 </header>
 
 <main id="view-capture" class="view active">
-  <section class="level-bar">
-    <label for="level-select">Your level</label>
-    <select id="level-select">
-      <option value="N5">N5 (beginner)</option>
-      <option value="N4">N4</option>
-      <option value="N3" selected>N3</option>
-      <option value="N2">N2</option>
-      <option value="N1">N1 (advanced)</option>
-    </select>
+  <section class="analysis-controls">
+    <label>Your level
+      <select id="level-select">
+        <option value="N5">N5 (beginner)</option>
+        <option value="N4">N4</option>
+        <option value="N3" selected>N3</option>
+        <option value="N2">N2</option>
+        <option value="N1">N1 (advanced)</option>
+      </select>
+    </label>
+    <label>Analysis mode
+      <select id="analysis-mode-select">
+        <option value="auto" selected>Auto-detect</option>
+        <option value="reading">Reading text</option>
+        <option value="exercise">Textbook exercise</option>
+      </select>
+    </label>
   </section>
 
   <section id="capture-empty" class="capture-empty">
@@ -108,6 +116,6 @@
 <div id="toast" class="toast hidden"></div>
 
 <script src="js/vendor/msal-browser.min.js"></script>
-<script src="js/app.js?v=12"></script>
+<script src="js/app.js?v=13"></script>
 </body>
 </html>
