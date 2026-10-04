@@ -8,59 +8,59 @@
 <link rel="manifest" href="manifest.webmanifest" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
-<link rel="stylesheet" href="css/style.css?v=14" />
+<link rel="stylesheet" href="css/style.css?v=15" />
 </head>
 <body>
 <header class="app-header">
-  <h1>日本語 Text Analyzer</h1>
+  <h1 data-i18n="app.heading">日本語 Text Analyzer</h1>
   <div class="header-actions">
-    <button id="btn-account" class="account-btn" title="Sign in or view account">
+    <button id="btn-account" class="account-btn" title="Sign in or view account" data-i18n-title="account.openTitle">
       <span id="account-indicator" class="account-indicator" aria-hidden="true"></span>
       <span aria-hidden="true">👤</span>
-      <span id="account-label">Sign in</span>
+      <span id="account-label" data-i18n="account.signIn">Sign in</span>
     </button>
-    <button id="btn-settings" class="icon-btn" title="Settings">⚙️</button>
+    <button id="btn-settings" class="icon-btn" title="Settings" data-i18n-title="settings.title">⚙️</button>
   </div>
 </header>
 
 <main id="view-capture" class="view active">
   <section class="analysis-controls">
-    <label>Your level
+    <label><span data-i18n="level.label">Your level</span>
       <select id="level-select">
-        <option value="N5">N5 (beginner)</option>
-        <option value="N4">N4</option>
-        <option value="N3" selected>N3</option>
-        <option value="N2">N2</option>
-        <option value="N1">N1 (advanced)</option>
+        <option value="N5" data-i18n="level.n5">N5 (beginner)</option>
+        <option value="N4" data-i18n="level.n4">N4</option>
+        <option value="N3" selected data-i18n="level.n3">N3</option>
+        <option value="N2" data-i18n="level.n2">N2</option>
+        <option value="N1" data-i18n="level.n1">N1 (advanced)</option>
       </select>
     </label>
-    <label>Analysis mode
+    <label><span data-i18n="mode.label">Analysis mode</span>
       <select id="analysis-mode-select">
-        <option value="auto" selected>Auto-detect</option>
-        <option value="reading">Reading text</option>
-        <option value="exercise">Textbook exercise</option>
+        <option value="auto" selected data-i18n="mode.auto">Auto-detect</option>
+        <option value="reading" data-i18n="mode.reading">Reading text</option>
+        <option value="exercise" data-i18n="mode.exercise">Textbook exercise</option>
       </select>
     </label>
   </section>
 
   <section id="capture-empty" class="capture-empty">
-    <p>Take a photo or choose an image containing Japanese text.</p>
-    <button id="btn-pick-image" class="primary-btn">📷 Take / Choose Photo</button>
+    <p data-i18n="capture.prompt">Take a photo or choose an image containing Japanese text.</p>
+    <button id="btn-pick-image" class="primary-btn" data-i18n="capture.choose">📷 Take / Choose Photo</button>
     <input type="file" id="file-input" accept="image/*" capture="environment" hidden />
   </section>
 
   <section id="capture-editor" class="capture-editor hidden">
-    <p class="hint">Drag to select the text region, then tap Analyze.</p>
+    <p class="hint" data-i18n="capture.hint">Drag to select the text region, then tap Analyze.</p>
     <div id="crop-stage" class="crop-stage">
       <canvas id="photo-canvas"></canvas>
       <canvas id="selection-canvas"></canvas>
     </div>
     <div class="editor-actions">
-      <button id="btn-retake" class="secondary-btn">↺ Retake</button>
-      <button id="btn-rotate-left" class="secondary-btn" title="Rotate left">↶ Rotate left</button>
-      <button id="btn-rotate-right" class="secondary-btn" title="Rotate right">↷ Rotate right</button>
-      <button id="btn-reset-crop" class="secondary-btn">⬚ Reset selection</button>
-      <button id="btn-analyze" class="primary-btn" disabled>🔍 Analyze</button>
+      <button id="btn-retake" class="secondary-btn" data-i18n="capture.retake">↺ Retake</button>
+      <button id="btn-rotate-left" class="secondary-btn" title="Rotate left" data-i18n="capture.rotateLeft" data-i18n-title="capture.rotateLeft">↶ Rotate left</button>
+      <button id="btn-rotate-right" class="secondary-btn" title="Rotate right" data-i18n="capture.rotateRight" data-i18n-title="capture.rotateRight">↷ Rotate right</button>
+      <button id="btn-reset-crop" class="secondary-btn" data-i18n="capture.reset">⬚ Reset selection</button>
+      <button id="btn-analyze" class="primary-btn" disabled data-i18n="capture.analyze">🔍 Analyze</button>
     </div>
   </section>
 
@@ -70,45 +70,55 @@
 <!-- Settings modal -->
 <dialog id="settings-modal" class="modal">
   <form method="dialog" class="modal-content">
-    <h2>Settings</h2>
+    <h2 data-i18n="settings.title">Settings</h2>
 
     <div class="account-panel">
-      <span id="account-status" class="muted">Not signed in</span>
+      <span id="account-status" class="muted" data-i18n="account.notSignedIn">Not signed in</span>
       <div class="account-actions">
-        <button type="button" id="btn-signin" class="secondary-btn">🔑 Sign in</button>
-        <button type="button" id="btn-signout" class="secondary-btn">Sign out</button>
+        <button type="button" id="btn-signin" class="secondary-btn"><span aria-hidden="true">🔑</span> <span data-i18n="account.signIn">Sign in</span></button>
+        <button type="button" id="btn-signout" class="secondary-btn" data-i18n="account.signOut">Sign out</button>
       </div>
     </div>
 
     <fieldset>
-      <legend>Azure OpenAI</legend>
-      <label>Endpoint
-        <input type="text" id="cfg-endpoint" placeholder="https://your-resource.openai.azure.com" />
+      <legend data-i18n="interface.title">Interface</legend>
+      <label><span data-i18n="interface.language">Interface language</span>
+        <select id="cfg-language">
+          <option value="en" data-i18n="language.en">English</option>
+          <option value="ja" data-i18n="language.ja">日本語</option>
+        </select>
       </label>
-      <label>Deployment name
-        <input type="text" id="cfg-deployment" placeholder="gpt-4o-mini" />
-      </label>
-      <label>API version
-        <input type="text" id="cfg-apiversion" placeholder="2024-10-21" />
-      </label>
-      <label>Entra ID Tenant ID
-        <input type="text" id="cfg-tenant" placeholder="tenant-guid" />
-      </label>
-      <label>Entra ID App (client) ID
-        <input type="text" id="cfg-clientid" placeholder="app-guid" />
-      </label>
-      <p class="muted">Authentication uses your Microsoft account (Entra ID sign-in) — no API key is stored. Use the account control at the top of the app to sign in.</p>
     </fieldset>
 
     <fieldset>
-      <legend>Explanation detail</legend>
-      <label><input type="checkbox" id="cfg-furigana" checked /> Show furigana / readings</label>
-      <label><input type="checkbox" id="cfg-romaji" /> Also show romaji</label>
+      <legend data-i18n="azure.title">Azure OpenAI</legend>
+      <label><span data-i18n="azure.endpoint">Endpoint</span>
+        <input type="text" id="cfg-endpoint" placeholder="https://your-resource.openai.azure.com" />
+      </label>
+      <label><span data-i18n="azure.deployment">Deployment name</span>
+        <input type="text" id="cfg-deployment" placeholder="gpt-4o-mini" />
+      </label>
+      <label><span data-i18n="azure.apiVersion">API version</span>
+        <input type="text" id="cfg-apiversion" placeholder="2024-10-21" />
+      </label>
+      <label><span data-i18n="azure.tenant">Entra ID Tenant ID</span>
+        <input type="text" id="cfg-tenant" placeholder="tenant-guid" />
+      </label>
+      <label><span data-i18n="azure.client">Entra ID App (client) ID</span>
+        <input type="text" id="cfg-clientid" placeholder="app-guid" />
+      </label>
+      <p class="muted" data-i18n="azure.authNote">Authentication uses your Microsoft account (Entra ID sign-in) — no API key is stored. Use the account control at the top of the app to sign in.</p>
+    </fieldset>
+
+    <fieldset>
+      <legend data-i18n="detail.title">Explanation detail</legend>
+      <label><input type="checkbox" id="cfg-furigana" checked /> <span data-i18n="detail.furigana">Show furigana / readings</span></label>
+      <label><input type="checkbox" id="cfg-romaji" /> <span data-i18n="detail.romaji">Also show romaji</span></label>
     </fieldset>
 
     <div class="modal-actions">
-      <button type="submit" id="btn-save-settings" class="primary-btn">Save</button>
-      <button type="button" id="btn-close-settings" class="secondary-btn">Close</button>
+      <button type="submit" id="btn-save-settings" class="primary-btn" data-i18n="action.save">Save</button>
+      <button type="button" id="btn-close-settings" class="secondary-btn" data-i18n="action.close">Close</button>
     </div>
   </form>
 </dialog>
@@ -116,6 +126,7 @@
 <div id="toast" class="toast hidden"></div>
 
 <script src="js/vendor/msal-browser.min.js"></script>
-<script src="js/app.js?v=14"></script>
+<script src="js/i18n.js?v=15"></script>
+<script src="js/app.js?v=15"></script>
 </body>
 </html>

@@ -3,6 +3,9 @@
 // calls it directly from the browser (no backend), and renders a structured analysis.
 
 const LS_KEY = 'jta_settings_v1';
+const i18n = window.JTA_I18N;
+const t = (key, params) => i18n.t(key, params);
+i18n.apply();
 
 const DEFAULT_SETTINGS = {
   endpoint: 'https://sommerlernplan-ai-a8fbd8e1.openai.azure.com',
@@ -44,6 +47,7 @@ const els = {
   cfgApiVersion: document.getElementById('cfg-apiversion'),
   cfgTenant: document.getElementById('cfg-tenant'),
   cfgClientId: document.getElementById('cfg-clientid'),
+  cfgLanguage: document.getElementById('cfg-language'),
   cfgFurigana: document.getElementById('cfg-furigana'),
   cfgRomaji: document.getElementById('cfg-romaji'),
   btnSignin: document.getElementById('btn-signin'),
@@ -81,6 +85,7 @@ function openSettingsModal() {
   els.cfgApiVersion.value = settings.apiVersion || '';
   els.cfgTenant.value = settings.tenantId || '';
   els.cfgClientId.value = settings.clientId || '';
+  els.cfgLanguage.value = i18n.getLocale();
   els.cfgFurigana.checked = !!settings.furigana;
   els.cfgRomaji.checked = !!settings.romaji;
   refreshAccountStatus();
@@ -90,6 +95,7 @@ function openSettingsModal() {
 els.btnSettings.addEventListener('click', openSettingsModal);
 els.btnAccount.addEventListener('click', openSettingsModal);
 els.btnCloseSettings.addEventListener('click', () => els.settingsModal.close());
+els.cfgLanguage.addEventListener('change', () => i18n.setLocale(els.cfgLanguage.value));
 
 els.btnSaveSettings.addEventListener('click', (e) => {
   settings.endpoint = els.cfgEndpoint.value.trim().replace(/\/+$/, '');
@@ -100,7 +106,7 @@ els.btnSaveSettings.addEventListener('click', (e) => {
   settings.furigana = els.cfgFurigana.checked;
   settings.romaji = els.cfgRomaji.checked;
   saveSettings(settings);
-  toast('Settings saved');
+  toast(t('toast.settingsSaved'));
   initMsal(); // re-init in case tenant/client changed
 });
 
@@ -117,7 +123,7 @@ function initMsal() {
   }
   if (typeof msal === 'undefined') {
     msalApp = null;
-    msalReady = Promise.reject(new Error('The Microsoft sign-in library failed to load. Refresh the app and try again.'));
+    msalReady = Promise.reject(new Error(t('auth.libraryFailed')));
     return msalReady;
   }
   const config = {
@@ -142,7 +148,7 @@ function initMsal() {
     if (localStorage.getItem('jta_auth_pending') === '1') {
       localStorage.removeItem('jta_auth_pending');
       openSettingsModal();
-      if (activeAccount) toast('Signed in');
+      if (activeAccount) toast(t('toast.signedIn'));
     }
   });
   return msalReady;
@@ -150,15 +156,15 @@ function initMsal() {
 
 function setAccountDisplay(account) {
   if (account) {
-    els.accountStatus.textContent = `Signed in as ${account.username}`;
+    els.accountStatus.textContent = t('account.signedInAs', { username: account.username });
     els.accountLabel.textContent = account.name || account.username;
     els.accountIndicator.classList.add('authenticated');
-    els.btnAccount.title = `Signed in as ${account.username}`;
+    els.btnAccount.title = t('account.signedInAs', { username: account.username });
   } else {
-    els.accountStatus.textContent = 'Not signed in';
-    els.accountLabel.textContent = 'Sign in';
+    els.accountStatus.textContent = t('account.notSignedIn');
+    els.accountLabel.textContent = t('account.signIn');
     els.accountIndicator.classList.remove('authenticated');
-    els.btnAccount.title = 'Sign in';
+    els.btnAccount.title = t('account.signIn');
   }
 }
 
@@ -173,10 +179,10 @@ function clearStaleMsalInteraction() {
 els.btnSignin.addEventListener('click', async () => {
   els.btnSignin.disabled = true;
   els.accountStatus.classList.remove('auth-error');
-  els.accountStatus.textContent = 'Redirecting to Microsoft sign-in...';
+  els.accountStatus.textContent = t('account.redirecting');
   try {
     if (!msalApp) initMsal();
-    if (!msalApp) { toast('Fill in Tenant ID and Client ID first'); return; }
+    if (!msalApp) { toast(t('auth.fillSettings')); return; }
     await msalReady;
     clearStaleMsalInteraction();
     localStorage.setItem('jta_auth_pending', '1');
@@ -187,7 +193,7 @@ els.btnSignin.addEventListener('click', async () => {
     localStorage.removeItem('jta_auth_pending');
     console.error(err);
     els.accountStatus.classList.add('auth-error');
-    els.accountStatus.textContent = 'Sign-in failed: ' + (err.message || err);
+    els.accountStatus.textContent = t('account.failed', { error: err.message || err });
   } finally {
     els.btnSignin.disabled = false;
   }
@@ -203,7 +209,7 @@ els.btnSignout.addEventListener('click', async () => {
 
 async function getAccessToken() {
   if (!msalApp) initMsal();
-  if (!msalApp) throw new Error('Sign-in not configured. Open Settings and fill Tenant/Client ID.');
+  if (!msalApp) throw new Error(t('auth.notConfigured'));
   await msalReady;
   const request = {
     scopes: ['https://cognitiveservices.azure.com/user_impersonation'],
@@ -213,7 +219,7 @@ async function getAccessToken() {
     clearStaleMsalInteraction();
     localStorage.setItem('jta_auth_pending', '1');
     await msalApp.loginRedirect(request);
-    throw new Error('Redirecting to Microsoft sign-in. Tap Analyze again after returning.');
+    throw new Error(t('auth.redirectRetry'));
   }
   try {
     const result = await msalApp.acquireTokenSilent(request);
@@ -221,7 +227,7 @@ async function getAccessToken() {
   } catch (err) {
     clearStaleMsalInteraction();
     await msalApp.acquireTokenRedirect(request);
-    throw new Error('Additional sign-in is required. Tap Analyze again after returning.');
+    throw new Error(t('auth.additionalRequired'));
   }
 }
 
@@ -295,7 +301,7 @@ function rotateImage(deltaDegrees) {
   if (!imgLoaded) return;
   rotationDegrees = (rotationDegrees + deltaDegrees + 360) % 360;
   setupCanvas();
-  toast(deltaDegrees < 0 ? 'Rotated left' : 'Rotated right', 1200);
+  toast(t(deltaDegrees < 0 ? 'toast.rotatedLeft' : 'toast.rotatedRight'), 1200);
 }
 
 els.btnRotateLeft.addEventListener('click', () => rotateImage(-90));
@@ -589,20 +595,20 @@ Rules for tailoring to the learner's level (${levelLabel}):
 - "kanjiBreakdown": only include entries for words composed of two or more kanji characters, decomposed into their individual kanji. Every "kanjiBreakdown" word must also appear exactly in "words". Skip this decomposition for kanji that would already be well known at the learner's level (e.g. do not decompose extremely common kanji for N1 learners); focus on kanji at or above their current level.
 - "grammar": only explain grammar points that are at or above the learner's current level (i.e. things they likely do NOT already know). Do not explain grammar that is more basic than their level.
 - If the text is very short or simple, it is fine for "words", "kanjiBreakdown", or "grammar" to be empty arrays.
-- All explanations should be written in English.
+- The interface language is unrelated to the analysis language. Always translate Japanese into English and write all vocabulary, kanji, grammar, and exercise explanations in English.
 - Output strictly valid JSON, with no trailing commas.`;
 }
 
 function setLoading(isLoading) {
   if (isLoading) {
     els.resultArea.classList.remove('hidden');
-    els.resultArea.innerHTML = '<div class="loading">Analyzing text… ⏳</div>';
+    els.resultArea.innerHTML = `<div class="loading" data-i18n="result.loading">${t('result.loading')}</div>`;
   }
 }
 
 function showError(err) {
   els.resultArea.classList.remove('hidden');
-  els.resultArea.innerHTML = `<div class="error-box">Analysis failed:\n${(err && err.message) || err}</div>`;
+  els.resultArea.innerHTML = `<div class="error-box">${esc(t('result.analysisFailed', { error: (err && err.message) || err }))}</div>`;
 }
 
 function parseModelJson(raw) {
@@ -612,63 +618,56 @@ function parseModelJson(raw) {
   try {
     return JSON.parse(text);
   } catch (err) {
-    throw new Error(
-      `Azure returned a complete response that was not valid JSON (${text.length} characters). `
-      + `Please retry the analysis; if it happens repeatedly, select a smaller text region. `
-      + `Technical detail: ${err.message}`
-    );
+    throw new Error(t('error.invalidJson', { length: text.length, detail: err.message }));
   }
 }
 
 function parseAnalysisResponse(data) {
   const choice = data.choices?.[0];
   if (!choice) {
-    throw new Error('Azure returned no analysis result. Please retry.');
+    throw new Error(t('error.noAnalysis'));
   }
   if (choice.finish_reason === 'length') {
-    throw new Error(
-      'The analysis was too long and Azure cut it off before completion. '
-      + 'Select a smaller text region or choose a higher JLPT level so fewer basic words and grammar points are explained.'
-    );
+    throw new Error(t('error.analysisTooLong'));
   }
   if (choice.finish_reason === 'content_filter') {
-    throw new Error('Azure content filtering stopped the analysis. Try a smaller region containing only the Japanese exercise or passage.');
+    throw new Error(t('error.analysisFiltered'));
   }
   if (choice.finish_reason && choice.finish_reason !== 'stop') {
-    throw new Error(`Azure stopped the analysis unexpectedly (${choice.finish_reason}). Please retry.`);
+    throw new Error(t('error.analysisStopped', { reason: choice.finish_reason }));
   }
   if (choice.message?.refusal) {
-    throw new Error(`Azure declined to analyze this image: ${choice.message.refusal}`);
+    throw new Error(t('error.analysisRefused', { reason: choice.message.refusal }));
   }
   const content = choice.message?.content;
   if (!content) {
-    throw new Error('Azure returned an empty analysis. Please retry.');
+    throw new Error(t('error.analysisEmpty'));
   }
   return parseModelJson(content);
 }
 
 function parseCorrectionResponse(data) {
   const choice = data.choices?.[0];
-  if (!choice) throw new Error('Azure returned no correction result. Please retry.');
+  if (!choice) throw new Error(t('error.noCorrection'));
   if (choice.finish_reason === 'length') {
-    throw new Error('The correction was too long and Azure cut it off. Try submitting fewer questions at once.');
+    throw new Error(t('error.correctionTooLong'));
   }
   if (choice.finish_reason === 'content_filter') {
-    throw new Error('Azure content filtering stopped the correction request.');
+    throw new Error(t('error.correctionFiltered'));
   }
   if (choice.finish_reason && choice.finish_reason !== 'stop') {
-    throw new Error(`Azure stopped the correction unexpectedly (${choice.finish_reason}). Please retry.`);
+    throw new Error(t('error.correctionStopped', { reason: choice.finish_reason }));
   }
   if (choice.message?.refusal) {
-    throw new Error(`Azure declined to correct this exercise: ${choice.message.refusal}`);
+    throw new Error(t('error.correctionRefused', { reason: choice.message.refusal }));
   }
-  if (!choice.message?.content) throw new Error('Azure returned an empty correction. Please retry.');
+  if (!choice.message?.content) throw new Error(t('error.correctionEmpty'));
   return parseModelJson(choice.message.content);
 }
 
 async function analyze() {
   if (!settings.endpoint || !settings.deployment) {
-    toast('Open Settings and configure the Azure OpenAI endpoint/deployment first');
+    toast(t('error.configureAzure'));
     openSettingsModal();
     return;
   }
@@ -705,7 +704,7 @@ async function analyze() {
 
     if (!resp.ok) {
       const errText = await resp.text();
-      throw new Error(`HTTP ${resp.status}: ${errText}`);
+      throw new Error(t('error.http', { status: resp.status, detail: errText }));
     }
     const data = await resp.json();
     const parsed = parseAnalysisResponse(data);
@@ -740,7 +739,7 @@ function renderFurigana(text) {
 
 function renderKanjiDetails(breakdowns) {
   if (!breakdowns.length) return '';
-  let html = `<details class="kanji-details"><summary>Kanji breakdown</summary>`;
+  let html = `<details class="kanji-details"><summary data-i18n="result.kanji">${t('result.kanji')}</summary>`;
   for (const kb of breakdowns) {
     html += `<div>`;
     for (const k of kb.kanji || []) {
@@ -798,14 +797,15 @@ function renderExerciseCard(analysis) {
   currentExerciseDraftKey = exerciseDraftKey(analysis);
   const draft = loadExerciseDraft(currentExerciseDraftKey);
   const confidence = Math.round(Math.max(0, Math.min(1, exercise.detectionConfidence || 0)) * 100);
-  let html = `<div class="result-card exercise-card"><h3>Exercise</h3>`;
+  let html = `<div class="result-card exercise-card"><h3 data-i18n="exercise.title">${t('exercise.title')}</h3>`;
   if (exercise.instructions) html += `<div class="jp-text text-block">${esc(exercise.instructions)}</div>`;
-  if (exercise.example) html += `<div class="exercise-example"><strong>Example</strong><br />${esc(exercise.example)}</div>`;
-  html += `<div class="exercise-meta">${esc(exercise.exerciseType.replaceAll('_', ' '))} · detection confidence ${confidence}%`;
-  if (exercise.uncertainty) html += `<br />Uncertainty: ${esc(exercise.uncertainty)}`;
+  if (exercise.example) html += `<div class="exercise-example"><strong data-i18n="exercise.example">${t('exercise.example')}</strong><br />${esc(exercise.example)}</div>`;
+  const exerciseTypeKey = `exercise.type.${exercise.exerciseType}`;
+  html += `<div class="exercise-meta"><span data-i18n="${exerciseTypeKey}">${t(exerciseTypeKey)}</span> · <span data-i18n-value="exercise.detectionConfidence" data-value="${confidence}">${t('exercise.detectionConfidence', { value: confidence })}</span>`;
+  if (exercise.uncertainty) html += `<br /><span data-i18n-value="exercise.uncertainty" data-value="${esc(exercise.uncertainty)}">${t('exercise.uncertainty', { value: exercise.uncertainty })}</span>`;
   html += `</div><div id="exercise-feedback-summary"></div>`;
   if (!exercise.questions.length) {
-    return html + `<div class="error-box">This looks like an exercise, but no answerable questions could be extracted. Try selecting a tighter region or choose Textbook exercise mode.</div></div>`;
+    return html + `<div class="error-box" data-i18n="exercise.noQuestions">${t('exercise.noQuestions')}</div></div>`;
   }
 
   exercise.questions.forEach((question, index) => {
@@ -819,11 +819,11 @@ function renderExerciseCard(analysis) {
         html += `<label class="exercise-choice"><input type="radio" name="exercise-q-${index}" value="${choiceIndex}" data-choice-index="${choiceIndex}"${checked} /> <span>${esc(choice)}</span></label>`;
       });
     } else {
-      html += `<textarea class="exercise-answer" data-exercise-answer="${index}" placeholder="Enter your answer">${esc(savedAnswer)}</textarea>`;
+      html += `<textarea class="exercise-answer" data-exercise-answer="${index}" data-i18n-placeholder="exercise.answerPlaceholder" placeholder="${t('exercise.answerPlaceholder')}">${esc(savedAnswer)}</textarea>`;
     }
     html += `<div class="exercise-feedback-slot" id="exercise-feedback-${index}"></div></div>`;
   });
-  html += `<div class="exercise-actions"><button id="btn-submit-exercise" class="primary-btn">Check answers</button></div></div>`;
+  html += `<div class="exercise-actions"><button id="btn-submit-exercise" class="primary-btn" data-i18n="exercise.check">${t('exercise.check')}</button></div></div>`;
   return html;
 }
 
@@ -878,21 +878,22 @@ ${JSON.stringify(exerciseData)}`;
 function renderExerciseFeedback(feedback) {
   const summary = document.getElementById('exercise-feedback-summary');
   if (summary) {
-    summary.innerHTML = `<div class="exercise-feedback"><strong>Overall feedback</strong><div>${esc(feedback.summary)}</div></div>`;
+    summary.innerHTML = `<div class="exercise-feedback"><strong data-i18n="exercise.overall">${t('exercise.overall')}</strong><div>${esc(feedback.summary)}</div></div>`;
   }
   const byId = new Map((feedback.results || []).map((result) => [result.id, result]));
   currentAnalysis.exercise.questions.forEach((question, index) => {
     const result = byId.get(question.id);
     const slot = document.getElementById(`exercise-feedback-${index}`);
     if (!slot || !result) return;
-    const label = result.status.replaceAll('_', ' ');
+    const statusKey = `status.${result.status}`;
     const confidence = Math.round(Math.max(0, Math.min(1, result.confidence || 0)) * 100);
-    let html = `<div class="exercise-feedback ${esc(result.status)}"><div class="feedback-status">${esc(label)}</div>`;
-    if (result.correctedAnswer) html += `<div><strong>Suggested answer:</strong> ${esc(result.correctedAnswer)}</div>`;
+    let html = `<div class="exercise-feedback ${esc(result.status)}"><div class="feedback-status" data-i18n="${statusKey}">${t(statusKey)}</div>`;
+    if (result.correctedAnswer) html += `<div><strong data-i18n="exercise.suggested">${t('exercise.suggested')}</strong> ${esc(result.correctedAnswer)}</div>`;
     html += `<div>${esc(result.explanation)}</div>`;
-    if (result.alternatives?.length) html += `<div class="muted">Also acceptable: ${result.alternatives.map(esc).join(' · ')}</div>`;
-    html += `<div class="muted">Confidence: ${confidence}%</div></div>`;
+    if (result.alternatives?.length) html += `<div class="muted"><span data-i18n="exercise.alternatives">${t('exercise.alternatives')}</span> ${result.alternatives.map(esc).join(' · ')}</div>`;
+    html += `<div class="muted" data-i18n-value="exercise.confidence" data-value="${confidence}">${t('exercise.confidence', { value: confidence })}</div></div>`;
     slot.innerHTML = html;
+    i18n.apply(slot);
   });
 }
 
@@ -900,12 +901,13 @@ async function gradeExercise() {
   const button = document.getElementById('btn-submit-exercise');
   const answers = collectExerciseAnswers();
   if (!Object.values(answers).some(Boolean)) {
-    toast('Enter at least one answer before checking.');
+    toast(t('toast.enterAnswer'));
     return;
   }
   saveExerciseDraft();
   button.disabled = true;
-  button.textContent = 'Checking...';
+  button.dataset.i18n = 'exercise.checking';
+  button.textContent = t('exercise.checking');
   try {
     const token = await getAccessToken();
     const url = `${settings.endpoint}/openai/deployments/${encodeURIComponent(settings.deployment)}/chat/completions?api-version=${encodeURIComponent(settings.apiVersion)}`;
@@ -927,16 +929,17 @@ async function gradeExercise() {
     });
     if (!resp.ok) {
       const errText = await resp.text();
-      throw new Error(`HTTP ${resp.status}: ${errText}`);
+      throw new Error(t('error.http', { status: resp.status, detail: errText }));
     }
     renderExerciseFeedback(parseCorrectionResponse(await resp.json()));
   } catch (err) {
     console.error(err);
     const summary = document.getElementById('exercise-feedback-summary');
-    if (summary) summary.innerHTML = `<div class="error-box">Correction failed:\n${esc(err.message || err)}</div>`;
+    if (summary) summary.innerHTML = `<div class="error-box">${esc(t('exercise.correctionFailed', { error: err.message || err }))}</div>`;
   } finally {
     button.disabled = false;
-    button.textContent = 'Check answers';
+    button.dataset.i18n = 'exercise.check';
+    button.textContent = t('exercise.check');
   }
 }
 
@@ -949,9 +952,9 @@ function renderResult(r) {
 
   if (r.sourceText) {
     const hasFurigana = !!r.sourceWithFurigana;
-    html += `<div class="result-card"><div class="result-card-header"><h3>Recognized text</h3>`;
+    html += `<div class="result-card"><div class="result-card-header"><h3 data-i18n="result.recognized">${t('result.recognized')}</h3>`;
     if (hasFurigana) {
-      html += `<label class="furigana-toggle"><input type="checkbox" id="result-furigana-toggle"${showFurigana ? ' checked' : ''} /> Furigana</label>`;
+      html += `<label class="furigana-toggle"><input type="checkbox" id="result-furigana-toggle"${showFurigana ? ' checked' : ''} /> <span data-i18n="result.furigana">${t('result.furigana')}</span></label>`;
     }
     html += `</div><div id="source-plain" class="jp-text text-block${hasFurigana && showFurigana ? ' hidden' : ''}">${esc(r.sourceText)}</div>`;
     if (hasFurigana) {
@@ -962,7 +965,7 @@ function renderResult(r) {
 
   html += renderExerciseCard(r);
 
-  html += `<div class="result-card"><h3>Translation</h3><div class="text-block">${esc(r.translation || '—')}</div></div>`;
+  html += `<div class="result-card"><h3 data-i18n="result.translation">${t('result.translation')}</h3><div class="text-block">${esc(r.translation || '—')}</div></div>`;
 
   if (r.words && r.words.length) {
     const breakdownByWord = new Map();
@@ -971,7 +974,7 @@ function renderResult(r) {
       entries.push(kb);
       breakdownByWord.set(kb.word, entries);
     }
-    html += `<div class="result-card"><h3>Important words</h3><ul class="word-list">`;
+    html += `<div class="result-card"><h3 data-i18n="result.words">${t('result.words')}</h3><ul class="word-list">`;
     for (const w of r.words) {
       html += `<li><span class="word-main">${esc(w.word)}</span>`;
       if (showFurigana && w.reading) html += `<span class="word-reading">${esc(w.reading)}</span>`;
@@ -984,7 +987,7 @@ function renderResult(r) {
   }
 
   if (r.grammar && r.grammar.length) {
-    html += `<div class="result-card"><h3>Grammar</h3>`;
+    html += `<div class="result-card"><h3 data-i18n="result.grammar">${t('result.grammar')}</h3>`;
     for (const g of r.grammar) {
       html += `<div class="grammar-item"><div class="pattern">${esc(g.pattern)}</div>`;
         if (g.excerpt) html += `<div class="jp-text">${esc(g.excerpt)}</div>`;
@@ -995,6 +998,7 @@ function renderResult(r) {
 
   els.resultArea.innerHTML = html;
   els.resultArea.classList.remove('hidden');
+  i18n.apply(els.resultArea);
 
   const furiganaToggle = document.getElementById('result-furigana-toggle');
   if (furiganaToggle) {
@@ -1011,6 +1015,10 @@ els.levelSelect.value = localStorage.getItem('jta_level') || 'N3';
 els.levelSelect.addEventListener('change', () => localStorage.setItem('jta_level', els.levelSelect.value));
 els.analysisModeSelect.value = localStorage.getItem('jta_analysis_mode') || 'auto';
 els.analysisModeSelect.addEventListener('change', () => localStorage.setItem('jta_analysis_mode', els.analysisModeSelect.value));
+window.addEventListener('jta:locale-changed', () => {
+  els.cfgLanguage.value = i18n.getLocale();
+  updateAccountUi();
+});
 
 initMsal();
 

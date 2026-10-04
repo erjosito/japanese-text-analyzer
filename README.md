@@ -10,6 +10,8 @@ rectangular region, and get an AI-powered breakdown tailored to your JLPT level:
 - Explanation of the relevant grammar points
 - Automatic textbook-exercise detection with answer fields, saved drafts, and
   AI correction after submission
+- English/Japanese interface captions, selectable in Settings and remembered
+  on each device
 
 The explanation depth adapts to the **JLPT level** you pick on the main screen
 (N5 → N1): more advanced levels skip explanations of vocabulary/grammar you'd
@@ -17,7 +19,13 @@ already be expected to know.
 
 ## How it works / architecture
 
-- **Pure static site** — `index.html` + `css/` + `js/app.js`. No backend server.
+- **Pure static site** — `index.html` + `css/` + `js/i18n.js` + `js/app.js`.
+  No backend server.
+- **Interface localization**: Settings lets you switch app captions between
+  English and Japanese without reloading or losing the current analysis or
+  exercise answers. This affects interface captions only: recognized content
+  remains Japanese, and translations and learning explanations always remain
+  English.
 - **Camera / photo**: uses a plain `<input type="file" capture="environment">`,
   which opens the camera (or gallery) on both Android phones and tablets.
 - **Rotate + crop**: the photo is drawn to a `<canvas>`; rotate it left or
