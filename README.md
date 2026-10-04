@@ -31,7 +31,8 @@ already be expected to know.
   exercises. You can force Reading text or Textbook exercise mode before
   analyzing. Detected questions become multiple-choice or typed-answer fields;
   answers stay in browser storage and are sent for correction only when you
-  tap **Check answers**.
+  tap **Check answers**. Pattern-practice exercises retain the model sentence
+  and present each new phrase combination as a sentence-building prompt.
 - **Authentication**: this Azure environment enforces "no API keys" (local
   auth disabled by policy), so the app signs you in with your **Microsoft
   Entra ID** account via [MSAL.js](https://github.com/AzureAD/microsoft-authentication-library-for-js)

@@ -402,12 +402,13 @@ function getAnalysisResponseFormat() {
           exercise: {
             type: 'object',
             additionalProperties: false,
-            required: ['instructions', 'exerciseType', 'detectionConfidence', 'uncertainty', 'questions'],
+            required: ['instructions', 'example', 'exerciseType', 'detectionConfidence', 'uncertainty', 'questions'],
             properties: {
               instructions: stringProperty,
+              example: stringProperty,
               exerciseType: {
                 type: 'string',
-                enum: ['none', 'multiple_choice', 'fill_blank', 'conjugation', 'reorder', 'translation', 'reading_comprehension', 'free_text', 'mixed'],
+                enum: ['none', 'multiple_choice', 'fill_blank', 'conjugation', 'reorder', 'translation', 'reading_comprehension', 'free_text', 'pattern_practice', 'mixed'],
               },
               detectionConfidence: { type: 'number' },
               uncertainty: stringProperty,
@@ -544,7 +545,8 @@ Respond with ONLY a single valid JSON object (no markdown fences, no extra comme
   "contentType": "reading or exercise",
   "exercise": {
     "instructions": "exercise instructions, or an empty string for reading text",
-    "exerciseType": "none, multiple_choice, fill_blank, conjugation, reorder, translation, reading_comprehension, free_text, or mixed",
+    "example": "the complete model/example sentence and any example phrase mapping, or an empty string",
+    "exerciseType": "none, multiple_choice, fill_blank, conjugation, reorder, translation, reading_comprehension, free_text, pattern_practice, or mixed",
     "detectionConfidence": 0.0,
     "uncertainty": "what is unclear about the exercise extraction, or an empty string",
     "questions": [
@@ -577,6 +579,7 @@ Respond with ONLY a single valid JSON object (no markdown fences, no extra comme
 Rules for tailoring to the learner's level (${levelLabel}):
 - For ordinary reading text, set "contentType" to "reading", "exerciseType" to "none", and "questions" to an empty array.
 - For a textbook exercise, set "contentType" to "exercise" and extract every visible question in reading order. Never include, infer, or reveal correct answers in the extraction response.
+- Use "pattern_practice" when the instructions provide a model sentence and then give phrase combinations from which the learner must build analogous sentences. Put the complete model sentence (and its source phrase combination if shown) in "example"; put each new phrase combination in a separate question prompt.
 - Use "multiple_choice" only when visible choices exist; otherwise use "text". Reorder, fill-in, conjugation, translation, comprehension, and free-response questions all use a text answer field in this first version.
 - If classification or question extraction is uncertain, explain that briefly in "uncertainty" and lower the relevant confidence. Do not invent missing text.
 - Preserve the visible line breaks from the image in "sourceText". Encode line breaks as \\n inside the JSON string.
@@ -797,6 +800,7 @@ function renderExerciseCard(analysis) {
   const confidence = Math.round(Math.max(0, Math.min(1, exercise.detectionConfidence || 0)) * 100);
   let html = `<div class="result-card exercise-card"><h3>Exercise</h3>`;
   if (exercise.instructions) html += `<div class="jp-text text-block">${esc(exercise.instructions)}</div>`;
+  if (exercise.example) html += `<div class="exercise-example"><strong>Example</strong><br />${esc(exercise.example)}</div>`;
   html += `<div class="exercise-meta">${esc(exercise.exerciseType.replaceAll('_', ' '))} · detection confidence ${confidence}%`;
   if (exercise.uncertainty) html += `<br />Uncertainty: ${esc(exercise.uncertainty)}`;
   html += `</div><div id="exercise-feedback-summary"></div>`;
@@ -844,6 +848,7 @@ function buildCorrectionPrompt(analysis, answers, level) {
   const exerciseData = {
     sourceText: analysis.sourceText,
     instructions: analysis.exercise.instructions,
+    example: analysis.exercise.example,
     exerciseType: analysis.exercise.exerciseType,
     questions: analysis.exercise.questions.map((question) => ({
       id: question.id,
@@ -857,6 +862,7 @@ function buildCorrectionPrompt(analysis, answers, level) {
 Assess the learner's submitted answers to the exercise data below.
 
 Rules:
+- For pattern practice, judge whether each sentence follows the grammar and transformation demonstrated by the model example while correctly using the supplied phrases.
 - Do not require exact string matching when multiple Japanese answers are valid.
 - For translation or composition, use a rubric based on meaning, grammar, naturalness, and whether the prompt was fulfilled.
 - Use "cannot_determine" if the image did not contain enough information to know the textbook's intended answer.
