@@ -3,6 +3,9 @@
 // calls it directly from the browser (no backend), and renders a structured analysis.
 
 const LS_KEY = 'jta_settings_v1';
+const AUTH_SCOPES = ['https://cognitiveservices.azure.com/user_impersonation'];
+const PENDING_ANALYSIS_KEY = 'pending-analysis';
+const PENDING_ANALYSIS_MAX_AGE_MS = 15 * 60 * 1000;
 const i18n = window.JTA_I18N;
 const t = (key, params) => i18n.t(key, params);
 i18n.apply();
@@ -114,16 +117,25 @@ els.btnSaveSettings.addEventListener('click', (e) => {
 let msalApp = null;
 let msalReady = Promise.resolve();
 let activeAccount = null;
+let authState = 'checking';
+let lastAuthCheckAt = 0;
 
 function initMsal() {
+  activeAccount = null;
+  authState = 'checking';
+  refreshAccountStatus();
   if (!settings.tenantId || !settings.clientId) {
     msalApp = null;
     msalReady = Promise.resolve();
+    authState = 'signed_out';
+    refreshAccountStatus();
     return msalReady;
   }
   if (typeof msal === 'undefined') {
     msalApp = null;
     msalReady = Promise.reject(new Error(t('auth.libraryFailed')));
+    authState = 'error';
+    refreshAccountStatus();
     return msalReady;
   }
   const config = {
@@ -136,7 +148,7 @@ function initMsal() {
     cache: { cacheLocation: 'localStorage' },
   };
   msalApp = new msal.PublicClientApplication(config);
-  msalReady = msalApp.initialize().then(() => msalApp.handleRedirectPromise()).then((response) => {
+  msalReady = msalApp.initialize().then(() => msalApp.handleRedirectPromise()).then(async (response) => {
     if (response?.account) {
       activeAccount = response.account;
     }
@@ -144,26 +156,47 @@ function initMsal() {
     if (!activeAccount && accounts.length > 0) {
       activeAccount = accounts[0];
     }
-    refreshAccountStatus();
+    await checkTokenReadiness();
+    await restorePendingAnalysis();
+    if (localStorage.getItem('jta_capture_auth_pending') === '1') {
+      localStorage.removeItem('jta_capture_auth_pending');
+      if (authState === 'ready') toast(t('toast.authRefreshed'));
+    }
     if (localStorage.getItem('jta_auth_pending') === '1') {
       localStorage.removeItem('jta_auth_pending');
       openSettingsModal();
       if (activeAccount) toast(t('toast.signedIn'));
     }
+  }).catch((err) => {
+    authState = 'error';
+    refreshAccountStatus();
+    throw err;
   });
   return msalReady;
 }
 
 function setAccountDisplay(account) {
+  els.accountIndicator.classList.remove('authenticated', 'checking', 'attention', 'auth-error');
   if (account) {
-    els.accountStatus.textContent = t('account.signedInAs', { username: account.username });
+    const statusKey = {
+      checking: 'account.checking',
+      interaction_required: 'account.refreshRequired',
+      error: 'account.tokenError',
+    }[authState];
+    els.accountStatus.textContent = statusKey
+      ? t(statusKey, { username: account.username })
+      : t('account.signedInAs', { username: account.username });
     els.accountLabel.textContent = account.name || account.username;
-    els.accountIndicator.classList.add('authenticated');
-    els.btnAccount.title = t('account.signedInAs', { username: account.username });
+    els.accountIndicator.classList.add({
+      ready: 'authenticated',
+      checking: 'checking',
+      interaction_required: 'attention',
+      error: 'auth-error',
+    }[authState] || 'attention');
+    els.btnAccount.title = els.accountStatus.textContent;
   } else {
     els.accountStatus.textContent = t('account.notSignedIn');
     els.accountLabel.textContent = t('account.signIn');
-    els.accountIndicator.classList.remove('authenticated');
     els.btnAccount.title = t('account.signIn');
   }
 }
@@ -176,6 +209,87 @@ function clearStaleMsalInteraction() {
   sessionStorage.removeItem('msal.interaction.status');
 }
 
+function getTokenRequest() {
+  return {
+    scopes: AUTH_SCOPES,
+    account: activeAccount || msalApp?.getAllAccounts()[0],
+  };
+}
+
+function isInteractionRequiredError(err) {
+  if (
+    typeof msal !== 'undefined'
+    && typeof msal.InteractionRequiredAuthError === 'function'
+    && err instanceof msal.InteractionRequiredAuthError
+  ) return true;
+  const code = String(err?.errorCode || err?.code || '').toLowerCase();
+  const subError = String(err?.subError || '').toLowerCase();
+  return [
+    'interaction_required',
+    'login_required',
+    'consent_required',
+    'no_tokens_found',
+    'monitor_window_timeout',
+  ].includes(code) || [
+    'basic_action',
+    'additional_action',
+    'message_only',
+    'consent_required',
+  ].includes(subError);
+}
+
+async function checkTokenReadiness() {
+  if (!msalApp) {
+    authState = 'signed_out';
+    refreshAccountStatus();
+    return authState;
+  }
+  const request = getTokenRequest();
+  if (!request.account) {
+    activeAccount = null;
+    authState = 'signed_out';
+    refreshAccountStatus();
+    return authState;
+  }
+  activeAccount = request.account;
+  authState = 'checking';
+  refreshAccountStatus();
+  try {
+    await msalApp.acquireTokenSilent(request);
+    authState = 'ready';
+  } catch (err) {
+    authState = isInteractionRequiredError(err) ? 'interaction_required' : 'error';
+    if (authState === 'error') console.error('Silent token check failed', err);
+  }
+  lastAuthCheckAt = Date.now();
+  refreshAccountStatus();
+  return authState;
+}
+
+async function redirectForAuthentication(request, purpose = 'signin') {
+  clearStaleMsalInteraction();
+  if (purpose === 'analysis') {
+    await persistPendingAnalysis();
+    localStorage.setItem('jta_analysis_auth_pending', '1');
+  } else if (purpose === 'capture') {
+    localStorage.setItem('jta_capture_auth_pending', '1');
+  } else {
+    localStorage.setItem('jta_auth_pending', '1');
+  }
+  try {
+    if (request.account) {
+      await msalApp.acquireTokenRedirect(request);
+    } else {
+      await msalApp.loginRedirect({ scopes: AUTH_SCOPES });
+    }
+  } catch (err) {
+    localStorage.removeItem('jta_auth_pending');
+    localStorage.removeItem('jta_capture_auth_pending');
+    if (purpose === 'analysis') await clearPendingAnalysis().catch(() => {});
+    throw err;
+  }
+}
+
 els.btnSignin.addEventListener('click', async () => {
   els.btnSignin.disabled = true;
   els.accountStatus.classList.remove('auth-error');
@@ -184,11 +298,10 @@ els.btnSignin.addEventListener('click', async () => {
     if (!msalApp) initMsal();
     if (!msalApp) { toast(t('auth.fillSettings')); return; }
     await msalReady;
-    clearStaleMsalInteraction();
-    localStorage.setItem('jta_auth_pending', '1');
-    await msalApp.loginRedirect({
-      scopes: ['https://cognitiveservices.azure.com/user_impersonation'],
-    });
+    await redirectForAuthentication(
+      { scopes: AUTH_SCOPES, account: null },
+      hasPendingCrop() ? 'analysis' : 'signin'
+    );
   } catch (err) {
     localStorage.removeItem('jta_auth_pending');
     console.error(err);
@@ -201,32 +314,37 @@ els.btnSignin.addEventListener('click', async () => {
 
 els.btnSignout.addEventListener('click', async () => {
   if (!msalApp || !activeAccount) return;
+  await clearPendingAnalysis().catch((err) => console.error('Could not clear pending analysis', err));
   await msalApp.logoutRedirect({
     account: activeAccount,
     postLogoutRedirectUri: new URL('./', window.location.href).href,
   });
 });
 
-async function getAccessToken() {
+async function getAccessToken(preservePendingAnalysis = false) {
   if (!msalApp) initMsal();
   if (!msalApp) throw new Error(t('auth.notConfigured'));
   await msalReady;
-  const request = {
-    scopes: ['https://cognitiveservices.azure.com/user_impersonation'],
-    account: activeAccount || msalApp.getAllAccounts()[0],
-  };
+  const request = getTokenRequest();
   if (!request.account) {
-    clearStaleMsalInteraction();
-    localStorage.setItem('jta_auth_pending', '1');
-    await msalApp.loginRedirect(request);
+    await redirectForAuthentication(request, preservePendingAnalysis ? 'analysis' : 'signin');
     throw new Error(t('auth.redirectRetry'));
   }
   try {
     const result = await msalApp.acquireTokenSilent(request);
+    authState = 'ready';
+    lastAuthCheckAt = Date.now();
+    refreshAccountStatus();
     return result.accessToken;
   } catch (err) {
-    clearStaleMsalInteraction();
-    await msalApp.acquireTokenRedirect(request);
+    if (!isInteractionRequiredError(err)) {
+      authState = 'error';
+      refreshAccountStatus();
+      throw new Error(t('auth.tokenFailed', { error: err.message || err }));
+    }
+    authState = 'interaction_required';
+    refreshAccountStatus();
+    await redirectForAuthentication(request, preservePendingAnalysis ? 'analysis' : 'signin');
     throw new Error(t('auth.additionalRequired'));
   }
 }
@@ -241,14 +359,144 @@ let rotationDegrees = 0;
 let currentAnalysis = null;
 let currentExerciseDraftKey = null;
 
-els.btnPickImage.addEventListener('click', () => els.fileInput.click());
-els.btnRetake.addEventListener('click', () => els.fileInput.click());
+function hasPendingCrop() {
+  return imgLoaded && selection && selection.w > 10 && selection.h > 10;
+}
+
+function openPendingAnalysisDb() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open('jta-state', 1);
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains('pending')) {
+        request.result.createObjectStore('pending');
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function writePendingAnalysis(value) {
+  const db = await openPendingAnalysisDb();
+  try {
+    await new Promise((resolve, reject) => {
+      const transaction = db.transaction('pending', 'readwrite');
+      transaction.objectStore('pending').put(value, PENDING_ANALYSIS_KEY);
+      transaction.oncomplete = resolve;
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
+    });
+  } finally {
+    db.close();
+  }
+}
+
+async function readPendingAnalysis() {
+  const db = await openPendingAnalysisDb();
+  try {
+    return await new Promise((resolve, reject) => {
+      const request = db.transaction('pending').objectStore('pending').get(PENDING_ANALYSIS_KEY);
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => reject(request.error);
+    });
+  } finally {
+    db.close();
+  }
+}
+
+async function clearPendingAnalysis() {
+  localStorage.removeItem('jta_analysis_auth_pending');
+  if (!('indexedDB' in window)) return;
+  const db = await openPendingAnalysisDb();
+  try {
+    await new Promise((resolve, reject) => {
+      const transaction = db.transaction('pending', 'readwrite');
+      transaction.objectStore('pending').delete(PENDING_ANALYSIS_KEY);
+      transaction.oncomplete = resolve;
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
+    });
+  } finally {
+    db.close();
+  }
+}
+
+async function persistPendingAnalysis() {
+  if (!hasPendingCrop()) return;
+  if (!('indexedDB' in window)) throw new Error(t('auth.preserveUnsupported'));
+  try {
+    await writePendingAnalysis({
+      createdAt: Date.now(),
+      dataUrl: getCroppedDataUrl(),
+      level: els.levelSelect.value,
+      analysisMode: els.analysisModeSelect.value,
+    });
+  } catch (err) {
+    console.error('Could not preserve the pending analysis', err);
+    throw new Error(t('auth.preserveFailed'));
+  }
+}
+
+async function restorePendingAnalysis() {
+  if (localStorage.getItem('jta_analysis_auth_pending') !== '1') return;
+  try {
+    const pending = await readPendingAnalysis();
+    if (!pending || Date.now() - pending.createdAt > PENDING_ANALYSIS_MAX_AGE_MS) {
+      await clearPendingAnalysis();
+      toast(t('toast.restoreExpired'));
+      return;
+    }
+    els.levelSelect.value = pending.level || els.levelSelect.value;
+    els.analysisModeSelect.value = pending.analysisMode || els.analysisModeSelect.value;
+    await loadImageDataUrl(pending.dataUrl, true);
+    await clearPendingAnalysis();
+    toast(t('toast.analysisRestored'), 5000);
+  } catch (err) {
+    console.error('Could not restore the pending analysis', err);
+    await clearPendingAnalysis().catch(() => {});
+    toast(t('toast.restoreFailed'), 5000);
+  }
+}
+
+async function requestImagePicker() {
+  if (authState === 'ready') {
+    els.fileInput.click();
+    return;
+  }
+  if (authState === 'checking') {
+    toast(t('toast.authChecking'));
+    return;
+  }
+  if (!msalApp) {
+    els.fileInput.click();
+    return;
+  }
+  if (authState === 'error') {
+    els.fileInput.click();
+    return;
+  }
+  await redirectForAuthentication(getTokenRequest(), 'capture');
+}
+
+function handleCaptureAuthError(err) {
+  console.error(err);
+  toast(t('account.failed', { error: err.message || err }), 5000);
+}
+
+els.btnPickImage.addEventListener('click', () => requestImagePicker().catch(handleCaptureAuthError));
+els.btnRetake.addEventListener('click', () => requestImagePicker().catch(handleCaptureAuthError));
 
 els.fileInput.addEventListener('change', (e) => {
   const file = e.target.files[0];
   if (!file) return;
   const reader = new FileReader();
-  reader.onload = (ev) => {
+  reader.onload = (ev) => loadImageDataUrl(ev.target.result).catch(showError);
+  reader.readAsDataURL(file);
+  els.fileInput.value = '';
+});
+
+function loadImageDataUrl(dataUrl, selectEntireImage = false) {
+  return new Promise((resolve, reject) => {
     img = new Image();
     img.onload = () => {
       imgLoaded = true;
@@ -256,14 +504,19 @@ els.fileInput.addEventListener('change', (e) => {
       els.captureEmpty.classList.add('hidden');
       els.captureEditor.classList.remove('hidden');
       setupCanvas();
+      if (selectEntireImage) {
+        selection = { x: 0, y: 0, w: els.photoCanvas.width, h: els.photoCanvas.height };
+        drawSelectionOverlay();
+        els.btnAnalyze.disabled = false;
+      }
       els.resultArea.classList.add('hidden');
       els.resultArea.innerHTML = '';
+      resolve();
     };
-    img.src = ev.target.result;
-  };
-  reader.readAsDataURL(file);
-  els.fileInput.value = '';
-});
+    img.onerror = () => reject(new Error(t('error.imageLoadFailed')));
+    img.src = dataUrl;
+  });
+}
 
 function setupCanvas() {
   const maxW = els.cropStage.clientWidth || 360;
@@ -673,7 +926,7 @@ async function analyze() {
   }
   setLoading(true);
   try {
-    const token = await getAccessToken();
+    const token = await getAccessToken(true);
     const dataUrl = getCroppedDataUrl();
     const level = els.levelSelect.value;
     const prompt = buildPrompt(level, els.analysisModeSelect.value);
@@ -1017,7 +1270,7 @@ els.analysisModeSelect.value = localStorage.getItem('jta_analysis_mode') || 'aut
 els.analysisModeSelect.addEventListener('change', () => localStorage.setItem('jta_analysis_mode', els.analysisModeSelect.value));
 window.addEventListener('jta:locale-changed', () => {
   els.cfgLanguage.value = i18n.getLocale();
-  updateAccountUi();
+  refreshAccountStatus();
 });
 
 initMsal();
@@ -1029,3 +1282,7 @@ if ('serviceWorker' in navigator) {
 }
 
 window.addEventListener('resize', () => { if (imgLoaded) setupCanvas(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible' || Date.now() - lastAuthCheckAt < 60_000) return;
+  msalReady.then(() => checkTokenReadiness()).catch((err) => console.error('Authentication refresh check failed', err));
+});

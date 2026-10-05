@@ -68,6 +68,16 @@ html, body {
   background: #4fd17d;
   box-shadow: 0 0 0.35rem rgba(79, 209, 125, 0.65);
 }
+.account-indicator.checking {
+  background: #f1c75b;
+}
+.account-indicator.attention {
+  background: #f29d49;
+  box-shadow: 0 0 0.35rem rgba(242, 157, 73, 0.55);
+}
+.account-indicator.auth-error {
+  background: #ff6b6b;
+}
 
 .icon-btn {
   background: transparent;

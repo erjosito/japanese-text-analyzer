@@ -48,7 +48,9 @@ already be expected to know.
   ever stored — only your Azure OpenAI endpoint, deployment name, tenant ID
   and app (client) ID are kept in the browser's `localStorage`. Authentication
   uses a full-page redirect rather than nested popups, which is more reliable
-  in installed mobile PWAs.
+  in installed mobile PWAs. The app checks token readiness when it starts and
+  resumes; if sign-in expires after an image is selected, the cropped image is
+  kept briefly in IndexedDB and restored after authentication.
 - **Installable (PWA)**: `manifest.webmanifest` + `sw.js` let you "Add to Home
   screen" on both the Samsung S24 and the Lenovo tablet, so it behaves like an
   app icon, full-screen, works from any browser without an app-store install.
