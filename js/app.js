@@ -990,6 +990,113 @@ function renderFurigana(text) {
   return html + esc(source.slice(lastIndex));
 }
 
+function hasFuriganaAnnotations(text) {
+  return /\{[^{}|\n]+\|[^{}|\n]+\}/.test(String(text || ''));
+}
+
+function resultCardHeader(titleKey, copySection, extra = '') {
+  return `<div class="result-card-header"><h3 data-i18n="${titleKey}">${t(titleKey)}</h3>`
+    + `<div class="result-card-actions">${extra}<button type="button" class="copy-btn" data-copy-section="${copySection}" data-i18n-title="copy.title" title="${t('copy.title')}"><span aria-hidden="true">⧉</span> <span data-copy-label data-i18n="copy.button">${t('copy.button')}</span></button></div></div>`;
+}
+
+function formatExerciseForCopy(analysis) {
+  const exercise = analysis.exercise;
+  if (!exercise) return '';
+  const lines = [];
+  if (exercise.instructions) lines.push(exercise.instructions);
+  if (exercise.example) lines.push(`${t('exercise.example')}: ${exercise.example}`);
+  exercise.questions?.forEach((question, index) => {
+    lines.push(`${index + 1}. ${question.prompt}`);
+    if (question.context) lines.push(question.context);
+    const answer = collectExerciseAnswers()[question.id];
+    if (answer) lines.push(`${t('copy.answer')}: ${answer}`);
+  });
+  return lines.join('\n');
+}
+
+function formatWordsForCopy(analysis) {
+  const breakdownByWord = new Map();
+  (analysis.kanjiBreakdown || []).forEach((entry) => {
+    const entries = breakdownByWord.get(entry.word) || [];
+    entries.push(entry);
+    breakdownByWord.set(entry.word, entries);
+  });
+  return (analysis.words || []).map((word) => {
+    const reading = word.reading ? `【${word.reading}】` : '';
+    const part = word.partOfSpeech ? ` (${word.partOfSpeech})` : '';
+    const lines = [`${word.word}${reading} — ${word.meaning || ''}${part}`];
+    (breakdownByWord.get(word.word) || []).forEach((breakdown) => {
+      breakdown.kanji?.forEach((kanji) => {
+        const readings = [kanji.onyomi, kanji.kunyomi].filter(Boolean).join(' / ');
+        lines.push(`  ${kanji.char}${readings ? ` (${readings})` : ''} — ${kanji.meaning || ''}${kanji.note ? `; ${kanji.note}` : ''}`);
+      });
+    });
+    return lines.join('\n');
+  }).join('\n\n');
+}
+
+function formatGrammarForCopy(analysis) {
+  return (analysis.grammar || []).map((grammar) =>
+    [grammar.pattern, grammar.excerpt, grammar.explanation].filter(Boolean).join('\n')
+  ).join('\n\n');
+}
+
+function getSectionCopyText(section) {
+  if (!currentAnalysis) return '';
+  switch (section) {
+    case 'recognized': return currentAnalysis.sourceText || '';
+    case 'exercise': return formatExerciseForCopy(currentAnalysis);
+    case 'translation': return currentAnalysis.translation || '';
+    case 'words': return formatWordsForCopy(currentAnalysis);
+    case 'grammar': return formatGrammarForCopy(currentAnalysis);
+    default: return '';
+  }
+}
+
+async function copyText(text) {
+  if (navigator.clipboard?.writeText && window.isSecureContext) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
+  textarea.select();
+  const copied = document.execCommand('copy');
+  textarea.remove();
+  if (!copied) throw new Error(t('copy.failed'));
+}
+
+function wireCopyButtons() {
+  els.resultArea.querySelectorAll('[data-copy-section]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const text = getSectionCopyText(button.dataset.copySection);
+      if (!text) {
+        toast(t('copy.empty'));
+        return;
+      }
+      try {
+        await copyText(text);
+        const label = button.querySelector('[data-copy-label]');
+        label.dataset.i18n = 'copy.copied';
+        label.textContent = t('copy.copied');
+        toast(t('copy.success'));
+        setTimeout(() => {
+          if (!label.isConnected) return;
+          label.dataset.i18n = 'copy.button';
+          label.textContent = t('copy.button');
+        }, 1600);
+      } catch (err) {
+        console.error('Copy failed', err);
+        toast(t('copy.failed'));
+      }
+    });
+  });
+}
+
 function renderKanjiDetails(breakdowns) {
   if (!breakdowns.length) return '';
   let html = `<details class="kanji-details"><summary data-i18n="result.kanji">${t('result.kanji')}</summary>`;
@@ -1050,7 +1157,7 @@ function renderExerciseCard(analysis) {
   currentExerciseDraftKey = exerciseDraftKey(analysis);
   const draft = loadExerciseDraft(currentExerciseDraftKey);
   const confidence = Math.round(Math.max(0, Math.min(1, exercise.detectionConfidence || 0)) * 100);
-  let html = `<div class="result-card exercise-card"><h3 data-i18n="exercise.title">${t('exercise.title')}</h3>`;
+  let html = `<div class="result-card exercise-card">${resultCardHeader('exercise.title', 'exercise')}`;
   if (exercise.instructions) html += `<div class="jp-text text-block">${esc(exercise.instructions)}</div>`;
   if (exercise.example) html += `<div class="exercise-example"><strong data-i18n="exercise.example">${t('exercise.example')}</strong><br />${esc(exercise.example)}</div>`;
   const exerciseTypeKey = `exercise.type.${exercise.exerciseType}`;
@@ -1204,21 +1311,18 @@ function renderResult(r) {
   let html = '';
 
   if (r.sourceText) {
-    const hasFurigana = !!r.sourceWithFurigana;
-    html += `<div class="result-card"><div class="result-card-header"><h3 data-i18n="result.recognized">${t('result.recognized')}</h3>`;
+    const hasFurigana = hasFuriganaAnnotations(r.sourceWithFurigana);
+    let furiganaControl = '';
     if (hasFurigana) {
-      html += `<label class="furigana-toggle"><input type="checkbox" id="result-furigana-toggle"${showFurigana ? ' checked' : ''} /> <span data-i18n="result.furigana">${t('result.furigana')}</span></label>`;
+      furiganaControl = `<label class="furigana-toggle"><input type="checkbox" id="result-furigana-toggle"${showFurigana ? ' checked' : ''} /> <span data-i18n="result.furigana">${t('result.furigana')}</span></label>`;
     }
-    html += `</div><div id="source-plain" class="jp-text text-block${hasFurigana && showFurigana ? ' hidden' : ''}">${esc(r.sourceText)}</div>`;
-    if (hasFurigana) {
-      html += `<div id="source-furigana" class="jp-text text-block${showFurigana ? '' : ' hidden'}">${renderFurigana(r.sourceWithFurigana)}</div>`;
-    }
-    html += `</div>`;
+    html += `<div class="result-card">${resultCardHeader('result.recognized', 'recognized', furiganaControl)}`
+      + `<div id="source-text-display" class="jp-text text-block">${hasFurigana && showFurigana ? renderFurigana(r.sourceWithFurigana) : esc(r.sourceText)}</div></div>`;
   }
 
   html += renderExerciseCard(r);
 
-  html += `<div class="result-card"><h3 data-i18n="result.translation">${t('result.translation')}</h3><div class="text-block">${esc(r.translation || '—')}</div></div>`;
+  html += `<div class="result-card">${resultCardHeader('result.translation', 'translation')}<div class="text-block">${esc(r.translation || '—')}</div></div>`;
 
   if (r.words && r.words.length) {
     const breakdownByWord = new Map();
@@ -1227,7 +1331,7 @@ function renderResult(r) {
       entries.push(kb);
       breakdownByWord.set(kb.word, entries);
     }
-    html += `<div class="result-card"><h3 data-i18n="result.words">${t('result.words')}</h3><ul class="word-list">`;
+    html += `<div class="result-card">${resultCardHeader('result.words', 'words')}<ul class="word-list">`;
     for (const w of r.words) {
       html += `<li><span class="word-main">${esc(w.word)}</span>`;
       if (showFurigana && w.reading) html += `<span class="word-reading">${esc(w.reading)}</span>`;
@@ -1240,7 +1344,7 @@ function renderResult(r) {
   }
 
   if (r.grammar && r.grammar.length) {
-    html += `<div class="result-card"><h3 data-i18n="result.grammar">${t('result.grammar')}</h3>`;
+    html += `<div class="result-card">${resultCardHeader('result.grammar', 'grammar')}`;
     for (const g of r.grammar) {
       html += `<div class="grammar-item"><div class="pattern">${esc(g.pattern)}</div>`;
         if (g.excerpt) html += `<div class="jp-text">${esc(g.excerpt)}</div>`;
@@ -1256,11 +1360,14 @@ function renderResult(r) {
   const furiganaToggle = document.getElementById('result-furigana-toggle');
   if (furiganaToggle) {
     furiganaToggle.addEventListener('change', () => {
-      document.getElementById('source-plain').classList.toggle('hidden', furiganaToggle.checked);
-      document.getElementById('source-furigana').classList.toggle('hidden', !furiganaToggle.checked);
+      const display = document.getElementById('source-text-display');
+      display.innerHTML = furiganaToggle.checked
+        ? renderFurigana(currentAnalysis.sourceWithFurigana)
+        : esc(currentAnalysis.sourceText);
     });
   }
   wireExerciseControls();
+  wireCopyButtons();
 }
 
 // ---------- init ----------

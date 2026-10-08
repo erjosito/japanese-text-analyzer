@@ -8,6 +8,7 @@ rectangular region, and get an AI-powered breakdown tailored to your JLPT level:
 - A list of the most important words (with reading/romaji/meaning)
 - Expandable kanji decomposition below each multi-kanji vocabulary word
 - Explanation of the relevant grammar points
+- One-tap copy controls for each result section
 - Automatic textbook-exercise detection with answer fields, saved drafts, and
   AI correction after submission
 - English/Japanese interface captions, selectable in Settings and remembered
