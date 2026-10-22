@@ -56,11 +56,13 @@ already be expected to know.
   screen" on both the Samsung S24 and the Lenovo tablet, so it behaves like an
   app icon, full-screen, works from any browser without an app-store install.
 
-## Azure resources already provisioned for you
+## Dedicated Azure backend
 
 | Resource | Value |
 |---|---|
-| Azure OpenAI resource | `sommerlernplan-ai-a8fbd8e1` (resource group `rg-sommerlernplan-2026`, region germanywestcentral) |
+| Foundry resource | `foundry-japanese-text-analyzer-a8fbd8` (resource group `rg-japanese-text-analyzer`, region germanywestcentral) |
+| Foundry project | `japanese-text-analyzer` (display name "Japanese Text Analyzer") |
+| Inference endpoint | `https://foundry-japanese-text-analyzer-a8fbd8.openai.azure.com` |
 | Model deployment | `japanese-text-analyzer` → `gpt-5.4-mini` (vision-capable) |
 | Entra ID App registration | "Japanese Text Analyzer" (client ID pre-filled in Settings) |
 | Redirect URIs registered | Dedicated `auth.html` callback URLs for GitHub Pages and local development, plus the original app URLs |
@@ -70,6 +72,37 @@ don't need to touch them. If you ever redeploy to a different URL, add that
 URL as a redirect URI on the app registration (Entra admin center → App
 registrations → Japanese Text Analyzer → Authentication), otherwise sign-in
 will fail with a redirect URI mismatch.
+
+This backend is dedicated to the live app, not shared with temporary demos.
+Resource tags identify the application, its purpose, and this repository.
+API-key authentication is disabled; inference access uses the **Cognitive
+Services OpenAI User** role scoped to this resource. Public network access
+is required by the current direct-from-browser architecture.
+
+The previous `sommerlernplan-ai-a8fbd8e1` backend was deleted on 19 October
+2026. When loading saved settings for that endpoint and the standard
+`japanese-text-analyzer` deployment, the app automatically substitutes the
+new endpoint. Other settings and custom endpoints/deployments are left
+unchanged. Tapping **Save** also persists the replacement to browser storage.
+
+### Recreating the backend
+
+`infra/main.bicep` defines the Foundry resource, project, model deployment,
+and resource-scoped inference role. From PowerShell, select the intended
+subscription and supply the Entra **user object ID**, not the application
+client ID:
+
+```powershell
+az account set --subscription <subscription-id>
+az group create --name rg-japanese-text-analyzer --location germanywestcentral --tags application=japanese-text-analyzer purpose=live-app-backend
+az deployment group create --resource-group rg-japanese-text-analyzer --template-file .\infra\main.bicep --parameters inferenceUserObjectId=<user-object-id>
+```
+
+The model uses consumption-based `GlobalStandard` capacity of 30 (30,000
+tokens/minute), not prepaid provisioned throughput. The resource is located
+in Germany West Central, but Global Standard inference can process requests
+globally. The Foundry project does not change the app's existing Chat
+Completions API or create an agent.
 
 ## First-time setup on a device
 
@@ -96,6 +129,12 @@ python -m http.server 5500
 ```
 
 (`http://localhost:5500/` is already registered as a redirect URI.)
+
+Run the settings-migration regression tests with Node.js (no packages required):
+
+```powershell
+node --test .\tests\settings.test.cjs
+```
 
 ## Deploying / updating
 

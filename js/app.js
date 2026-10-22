@@ -11,7 +11,7 @@ const t = (key, params) => i18n.t(key, params);
 i18n.apply();
 
 const DEFAULT_SETTINGS = {
-  endpoint: 'https://sommerlernplan-ai-a8fbd8e1.openai.azure.com',
+  endpoint: 'https://foundry-japanese-text-analyzer-a8fbd8.openai.azure.com',
   deployment: 'japanese-text-analyzer',
   apiVersion: '2024-10-21',
   tenantId: '5ad00b69-0386-4c74-8adc-ac7a28649f34',
@@ -24,7 +24,13 @@ function loadSettings() {
   try {
     const raw = localStorage.getItem(LS_KEY);
     if (!raw) return { ...DEFAULT_SETTINGS };
-    return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+    const loaded = { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+    if (typeof loaded.endpoint === 'string'
+        && loaded.endpoint.trim().replace(/\/+$/, '').toLowerCase() === 'https://sommerlernplan-ai-a8fbd8e1.openai.azure.com'
+        && loaded.deployment === DEFAULT_SETTINGS.deployment) {
+      loaded.endpoint = DEFAULT_SETTINGS.endpoint;
+    }
+    return loaded;
   } catch {
     return { ...DEFAULT_SETTINGS };
   }
