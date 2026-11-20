@@ -6,6 +6,7 @@ const LS_KEY = 'jta_settings_v1';
 const AUTH_SCOPES = ['https://cognitiveservices.azure.com/user_impersonation'];
 const PENDING_ANALYSIS_KEY = 'pending-analysis';
 const PENDING_ANALYSIS_MAX_AGE_MS = 15 * 60 * 1000;
+const IMAGE_MAX_EDGES = [0, 4096, 2048];
 const i18n = window.JTA_I18N;
 const t = (key, params) => i18n.t(key, params);
 i18n.apply();
@@ -18,6 +19,7 @@ const DEFAULT_SETTINGS = {
   clientId: 'b9852c8b-060f-4915-9850-9d185e19b3e5',
   furigana: true,
   romaji: false,
+  imageMaxEdge: 0,
 };
 
 function loadSettings() {
@@ -25,6 +27,7 @@ function loadSettings() {
     const raw = localStorage.getItem(LS_KEY);
     if (!raw) return { ...DEFAULT_SETTINGS };
     const loaded = { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+    if (!IMAGE_MAX_EDGES.includes(loaded.imageMaxEdge)) loaded.imageMaxEdge = 0;
     if (typeof loaded.endpoint === 'string'
         && loaded.endpoint.trim().replace(/\/+$/, '').toLowerCase() === 'https://sommerlernplan-ai-a8fbd8e1.openai.azure.com'
         && loaded.deployment === DEFAULT_SETTINGS.deployment) {
@@ -59,6 +62,7 @@ const els = {
   cfgLanguage: document.getElementById('cfg-language'),
   cfgFurigana: document.getElementById('cfg-furigana'),
   cfgRomaji: document.getElementById('cfg-romaji'),
+  cfgImageMaxEdge: document.getElementById('cfg-image-max-edge'),
   btnSignin: document.getElementById('btn-signin'),
   btnSignout: document.getElementById('btn-signout'),
   accountStatus: document.getElementById('account-status'),
@@ -97,6 +101,7 @@ function openSettingsModal() {
   els.cfgLanguage.value = i18n.getLocale();
   els.cfgFurigana.checked = !!settings.furigana;
   els.cfgRomaji.checked = !!settings.romaji;
+  els.cfgImageMaxEdge.value = String(settings.imageMaxEdge);
   refreshAccountStatus();
   els.settingsModal.showModal();
 }
@@ -114,6 +119,7 @@ els.btnSaveSettings.addEventListener('click', (e) => {
   settings.clientId = els.cfgClientId.value.trim();
   settings.furigana = els.cfgFurigana.checked;
   settings.romaji = els.cfgRomaji.checked;
+  settings.imageMaxEdge = Number(els.cfgImageMaxEdge.value);
   saveSettings(settings);
   toast(t('toast.settingsSaved'));
   initMsal(); // re-init in case tenant/client changed
@@ -356,8 +362,14 @@ async function getAccessToken(preservePendingAnalysis = false) {
 }
 
 // ---------- Image capture + crop ----------
-let img = new Image();
+let img = null;
 let imgLoaded = false;
+let imageWidth = 0;
+let imageHeight = 0;
+let imageLoadId = 0;
+let cancelImageLoad = null;
+let canvasWidth = 0;
+let canvasHeight = 0;
 let selection = null; // {x,y,w,h} in canvas pixel coords (natural image resolution)
 let dragStart = null;
 let scaleFactor = 1; // displayed size / natural size
@@ -492,68 +504,146 @@ function handleCaptureAuthError(err) {
 els.btnPickImage.addEventListener('click', () => requestImagePicker().catch(handleCaptureAuthError));
 els.btnRetake.addEventListener('click', () => requestImagePicker().catch(handleCaptureAuthError));
 
-els.fileInput.addEventListener('change', (e) => {
+els.fileInput.addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file) return;
-  const reader = new FileReader();
-  reader.onload = (ev) => loadImageDataUrl(ev.target.result).catch(showError);
-  reader.readAsDataURL(file);
   els.fileInput.value = '';
+  const url = URL.createObjectURL(file);
+  try {
+    await loadImageSource(url, false, settings.imageMaxEdge);
+  } catch (err) {
+    if (err.name !== 'AbortError') showError(err);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 });
 
 function loadImageDataUrl(dataUrl, selectEntireImage = false) {
-  return new Promise((resolve, reject) => {
-    img = new Image();
-    img.onload = () => {
-      imgLoaded = true;
-      rotationDegrees = 0;
-      els.captureEmpty.classList.add('hidden');
-      els.captureEditor.classList.remove('hidden');
-      setupCanvas();
-      if (selectEntireImage) {
-        selection = { x: 0, y: 0, w: els.photoCanvas.width, h: els.photoCanvas.height };
-        drawSelectionOverlay();
-        els.btnAnalyze.disabled = false;
-      }
-      els.resultArea.classList.add('hidden');
-      els.resultArea.innerHTML = '';
-      resolve();
-    };
-    img.onerror = () => reject(new Error(t('error.imageLoadFailed')));
-    img.src = dataUrl;
-  });
+  // Saved authentication crops already have the chosen resolution.
+  return loadImageSource(dataUrl, selectEntireImage);
 }
 
-function setupCanvas() {
+function releaseImage(source) {
+  if (!source) return;
+  if (typeof source.close === 'function') source.close();
+  else if ('src' in source) source.src = '';
+  else source.width = source.height = 1;
+}
+
+async function loadImageSource(url, selectEntireImage = false, maxEdge = 0) {
+  const loadId = ++imageLoadId;
+  if (cancelImageLoad) cancelImageLoad();
+  releaseImage(img);
+  img = null;
+  imgLoaded = false;
+  selection = null;
+  dragStart = null;
+  currentAnalysis = null;
+  currentExerciseDraftKey = null;
+  els.btnAnalyze.disabled = true;
+  els.captureEditor.classList.add('hidden');
+  els.captureEmpty.classList.remove('hidden');
+  els.resultArea.classList.add('hidden');
+  els.resultArea.innerHTML = '';
+  [els.photoCanvas, els.selectionCanvas].forEach((canvas) => {
+    canvas.width = canvas.height = 1;
+  });
+  const image = new Image();
+  let source = image;
+  try {
+    await new Promise((resolve, reject) => {
+      const finish = (error) => {
+        image.onload = image.onerror = null;
+        cancelImageLoad = null;
+        if (error) reject(error);
+        else resolve();
+      };
+      cancelImageLoad = () => finish(new DOMException('Image loading cancelled', 'AbortError'));
+      image.onload = () => finish();
+      image.onerror = () => finish(new Error(t('error.imageLoadFailed')));
+      image.src = url;
+    });
+    let width = image.naturalWidth;
+    let height = image.naturalHeight;
+    if (maxEdge && Math.max(width, height) > maxEdge) {
+      const ratio = maxEdge / Math.max(width, height);
+      width = Math.max(1, Math.round(width * ratio));
+      height = Math.max(1, Math.round(height * ratio));
+      if (typeof createImageBitmap === 'function') {
+        source = await createImageBitmap(image, {
+          resizeWidth: width,
+          resizeHeight: height,
+          resizeQuality: 'high',
+        });
+      } else {
+        source = document.createElement('canvas');
+        source.width = width;
+        source.height = height;
+        source.getContext('2d').drawImage(image, 0, 0, width, height);
+      }
+      releaseImage(image);
+    }
+    if (loadId !== imageLoadId) {
+      throw new DOMException('Image loading cancelled', 'AbortError');
+    }
+    img = source;
+    imageWidth = width;
+    imageHeight = height;
+    imgLoaded = true;
+    rotationDegrees = 0;
+    els.captureEmpty.classList.add('hidden');
+    els.captureEditor.classList.remove('hidden');
+    setupCanvas();
+    if (selectEntireImage) {
+      selection = { x: 0, y: 0, w: canvasWidth, h: canvasHeight };
+      drawSelectionOverlay();
+      els.btnAnalyze.disabled = false;
+    }
+  } catch (err) {
+    releaseImage(source);
+    if (source !== image) releaseImage(image);
+    if (loadId === imageLoadId) {
+      img = null;
+      imgLoaded = false;
+      els.btnAnalyze.disabled = true;
+    }
+    throw err;
+  }
+}
+
+function setupCanvas(resetSelection = true) {
   const maxW = els.cropStage.clientWidth || 360;
-  const sourceW = img.naturalWidth;
-  const sourceH = img.naturalHeight;
   const swapsDimensions = rotationDegrees % 180 !== 0;
-  const canvasW = swapsDimensions ? sourceH : sourceW;
-  const canvasH = swapsDimensions ? sourceW : sourceH;
-  scaleFactor = Math.min(1, maxW / canvasW);
-  const dispW = Math.round(canvasW * scaleFactor);
-  const dispH = Math.round(canvasH * scaleFactor);
+  canvasWidth = swapsDimensions ? imageHeight : imageWidth;
+  canvasHeight = swapsDimensions ? imageWidth : imageHeight;
+  scaleFactor = Math.min(1, maxW / canvasWidth);
+  const dispW = Math.max(1, Math.round(canvasWidth * scaleFactor));
+  const dispH = Math.max(1, Math.round(canvasHeight * scaleFactor));
+  // Both canvases are previews, not full-resolution copies of the photo.
+  const previewScale = Math.min(1, 1600 / Math.max(canvasWidth, canvasHeight));
+  const previewW = Math.max(1, Math.round(canvasWidth * previewScale));
+  const previewH = Math.max(1, Math.round(canvasHeight * previewScale));
 
   [els.photoCanvas, els.selectionCanvas].forEach((c) => {
-    c.width = canvasW;
-    c.height = canvasH;
+    if (c.width !== previewW) c.width = previewW;
+    if (c.height !== previewH) c.height = previewH;
     c.style.width = dispW + 'px';
     c.style.height = dispH + 'px';
   });
   els.cropStage.style.height = dispH + 'px';
 
   const ctx = els.photoCanvas.getContext('2d');
-  ctx.clearRect(0, 0, canvasW, canvasH);
+  ctx.clearRect(0, 0, previewW, previewH);
   ctx.save();
-  ctx.translate(canvasW / 2, canvasH / 2);
+  ctx.scale(previewW / canvasWidth, previewH / canvasHeight);
+  ctx.translate(canvasWidth / 2, canvasHeight / 2);
   ctx.rotate(rotationDegrees * Math.PI / 180);
-  ctx.drawImage(img, -sourceW / 2, -sourceH / 2, sourceW, sourceH);
+  ctx.drawImage(img, -imageWidth / 2, -imageHeight / 2, imageWidth, imageHeight);
   ctx.restore();
 
-  selection = null;
+  if (resetSelection) selection = null;
   drawSelectionOverlay();
-  els.btnAnalyze.disabled = true;
+  els.btnAnalyze.disabled = !hasPendingCrop();
 }
 
 function rotateImage(deltaDegrees) {
@@ -573,8 +663,8 @@ function canvasPosFromEvent(e) {
   const xDisp = clientX - rect.left;
   const yDisp = clientY - rect.top;
   // convert displayed coords to natural-resolution canvas coords
-  const x = xDisp * (els.selectionCanvas.width / rect.width);
-  const y = yDisp * (els.selectionCanvas.height / rect.height);
+  const x = Math.max(0, Math.min(canvasWidth, xDisp * (canvasWidth / rect.width)));
+  const y = Math.max(0, Math.min(canvasHeight, yDisp * (canvasHeight / rect.height)));
   return { x, y };
 }
 
@@ -614,12 +704,15 @@ function drawSelectionOverlay() {
   const ctx = els.selectionCanvas.getContext('2d');
   ctx.clearRect(0, 0, els.selectionCanvas.width, els.selectionCanvas.height);
   if (!selection) return;
+  ctx.save();
+  ctx.scale(els.selectionCanvas.width / canvasWidth, els.selectionCanvas.height / canvasHeight);
   ctx.fillStyle = 'rgba(0,0,0,0.45)';
-  ctx.fillRect(0, 0, els.selectionCanvas.width, els.selectionCanvas.height);
+  ctx.fillRect(0, 0, canvasWidth, canvasHeight);
   ctx.clearRect(selection.x, selection.y, selection.w, selection.h);
   ctx.strokeStyle = '#e0544e';
   ctx.lineWidth = Math.max(2, 3 / scaleFactor);
   ctx.strokeRect(selection.x, selection.y, selection.w, selection.h);
+  ctx.restore();
 }
 
 els.btnResetCrop.addEventListener('click', () => {
@@ -629,17 +722,23 @@ els.btnResetCrop.addEventListener('click', () => {
 });
 
 function getCroppedDataUrl() {
-  const w = Math.round(selection.w);
-  const h = Math.round(selection.h);
+  const x = Math.round(selection.x);
+  const y = Math.round(selection.y);
+  const w = Math.min(canvasWidth - x, Math.round(selection.w));
+  const h = Math.min(canvasHeight - y, Math.round(selection.h));
   const out = document.createElement('canvas');
   out.width = w;
   out.height = h;
-  out.getContext('2d').drawImage(
-    els.photoCanvas,
-    Math.round(selection.x), Math.round(selection.y), w, h,
-    0, 0, w, h
-  );
-  return out.toDataURL('image/jpeg', 0.92);
+  try {
+    const ctx = out.getContext('2d');
+    ctx.translate(-x, -y);
+    ctx.translate(canvasWidth / 2, canvasHeight / 2);
+    ctx.rotate(rotationDegrees * Math.PI / 180);
+    ctx.drawImage(img, -imageWidth / 2, -imageHeight / 2, imageWidth, imageHeight);
+    return out.toDataURL('image/jpeg', 0.92);
+  } finally {
+    out.width = out.height = 1;
+  }
 }
 
 // ---------- Analysis ----------
@@ -1394,7 +1493,7 @@ if ('serviceWorker' in navigator) {
   });
 }
 
-window.addEventListener('resize', () => { if (imgLoaded) setupCanvas(); });
+window.addEventListener('resize', () => { if (imgLoaded) setupCanvas(false); });
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible' || Date.now() - lastAuthCheckAt < 60_000) return;
   msalReady.then(() => checkTokenReadiness()).catch((err) => console.error('Authentication refresh check failed', err));

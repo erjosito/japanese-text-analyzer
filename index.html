@@ -8,7 +8,7 @@
 <link rel="manifest" href="manifest.webmanifest" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
-<link rel="stylesheet" href="css/style.css?v=18" />
+<link rel="stylesheet" href="css/style.css?v=19" />
 </head>
 <body>
 <header class="app-header">
@@ -111,6 +111,18 @@
     </fieldset>
 
     <fieldset>
+      <legend data-i18n="image.title">Image memory</legend>
+      <label><span data-i18n="image.resolution">Photo resolution</span>
+        <select id="cfg-image-max-edge">
+          <option value="0" data-i18n="image.original">Original (best text detail)</option>
+          <option value="4096" data-i18n="image.high">Limit longest side to 4096 pixels</option>
+          <option value="2048" data-i18n="image.low">Limit longest side to 2048 pixels (lower memory)</option>
+        </select>
+      </label>
+      <p class="muted" data-i18n="image.note">Applies to the next photo you choose. Smaller images use less memory but may reduce recognition of small kanji. Original preserves the selected text's resolution; the preview always uses less memory.</p>
+    </fieldset>
+
+    <fieldset>
       <legend data-i18n="detail.title">Explanation detail</legend>
       <label><input type="checkbox" id="cfg-furigana" checked /> <span data-i18n="detail.furigana">Show furigana / readings</span></label>
       <label><input type="checkbox" id="cfg-romaji" /> <span data-i18n="detail.romaji">Also show romaji</span></label>
@@ -126,7 +138,7 @@
 <div id="toast" class="toast hidden"></div>
 
 <script src="js/vendor/msal-browser.min.js"></script>
-<script src="js/i18n.js?v=18"></script>
-<script src="js/app.js?v=18"></script>
+<script src="js/i18n.js?v=19"></script>
+<script src="js/app.js?v=19"></script>
 </body>
 </html>

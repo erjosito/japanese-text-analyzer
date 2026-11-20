@@ -29,10 +29,21 @@ already be expected to know.
   English.
 - **Camera / photo**: uses a plain `<input type="file" capture="environment">`,
   which opens the camera (or gallery) on both Android phones and tablets.
-- **Rotate + crop**: the photo is drawn to a `<canvas>`; rotate it left or
-  right as needed, then drag (mouse or touch) to select a rectangle. Only the
-  cropped region is sent to the model (cheaper, more private, more accurate
-  OCR than the whole photo).
+- **Rotate + crop**: lightweight preview canvases (at most 1600 pixels on
+  their longest side) let you rotate and select a rectangle. Cropping uses
+  the source image, not the preview, so the selected text retains its original
+  resolution by default. Only the cropped region is sent to the model.
+- **Image memory**: photos load through temporary blob URLs rather than
+  full-photo base64 strings. Replacing a photo releases the previous image
+  and canvas buffers; the temporary export canvas is also released after
+  cropping. Settings offers optional 4096- or 2048-pixel longest-side limits,
+  applied to the next selected photo without enlarging small images. Limits
+  reduce working-image memory but can affect recognition of small kanji.
+  **Original** is the default. Decoding a large original and exporting a large
+  crop still require memory; these changes cannot prevent Android from
+  killing the browser while the external camera is open. Photos are not
+  automatically saved across page restarts (except the existing sign-in crop
+  recovery described below).
 - **AI backend**: your own **Azure OpenAI** resource (GPT vision model). The
   app calls the Chat Completions REST API directly from the browser and uses
   strict JSON Schema output so analysis responses remain machine-readable.
@@ -134,6 +145,14 @@ Run the settings-migration regression tests with Node.js (no packages required):
 
 ```powershell
 node --test .\tests\settings.test.cjs
+```
+
+Browser image tests cover preview allocations, original-resolution crops,
+rotation, resize, resolution settings, image replacement, and sign-in crop
+recovery. They require Python with Playwright and Pillow, plus Microsoft Edge:
+
+```powershell
+python .\tests\image-memory.browser.py
 ```
 
 ## Deploying / updating

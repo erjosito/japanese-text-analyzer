@@ -43,7 +43,7 @@ test('retired default endpoint migrates without changing user preferences or aut
     romaji: true,
   };
   const state = load(JSON.stringify(saved));
-  assert.deepEqual(state.settings, { ...saved, endpoint: replacementEndpoint });
+  assert.deepEqual(state.settings, { ...saved, endpoint: replacementEndpoint, imageMaxEdge: 0 });
   state.save();
   assert.equal(JSON.parse(state.storage.get('jta_settings_v1')).endpoint, replacementEndpoint);
 });
@@ -72,4 +72,21 @@ test('already migrated settings stay unchanged', () => {
 
 test('malformed stored JSON retains the existing default-settings behavior', () => {
   assert.deepEqual(load('{broken').settings, load().settings);
+});
+
+test('resolution reduction is opt-in and valid limits persist', () => {
+  assert.equal(load().settings.imageMaxEdge, 0);
+  assert.equal(load(JSON.stringify({ romaji: true })).settings.imageMaxEdge, 0);
+  for (const imageMaxEdge of [0, 2048, 4096]) {
+    const state = load(JSON.stringify({ imageMaxEdge }));
+    assert.equal(state.settings.imageMaxEdge, imageMaxEdge);
+    state.save();
+    assert.equal(JSON.parse(state.storage.get('jta_settings_v1')).imageMaxEdge, imageMaxEdge);
+  }
+});
+
+test('invalid resolution limits cannot unexpectedly downscale photos', () => {
+  for (const imageMaxEdge of [-1, 1, '2048', null]) {
+    assert.equal(load(JSON.stringify({ imageMaxEdge })).settings.imageMaxEdge, 0);
+  }
 });
