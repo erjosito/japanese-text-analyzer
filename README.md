@@ -144,7 +144,7 @@ python -m http.server 5500
 Run the settings-migration regression tests with Node.js (no packages required):
 
 ```powershell
-node --test .\tests\settings.test.cjs
+node --test .\tests\settings.test.cjs .\tests\network.test.cjs
 ```
 
 Browser image tests cover preview allocations, original-resolution crops,
@@ -154,6 +154,13 @@ recovery. They require Python with Playwright and Pillow, plus Microsoft Edge:
 ```powershell
 python .\tests\image-memory.browser.py
 ```
+
+Connection failures include the server hostname, elapsed seconds, request
+character count, browser connectivity hint, and whether a readable HTTP
+response arrived. These diagnostics do not include the photo, exercise
+answers, or access token, and cannot distinguish DNS/CORS/network blocking
+from connection loss. Azure HTTP errors still display their status and
+service message.
 
 ## Deploying / updating
 

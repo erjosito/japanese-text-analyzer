@@ -1023,6 +1023,44 @@ function parseCorrectionResponse(data) {
   return parseModelJson(choice.message.content);
 }
 
+async function postModelJson(url, token, body) {
+  const payload = JSON.stringify(body);
+  const host = new URL(url).hostname;
+  const started = Date.now();
+  const connectionError = (stage) => new Error(t('error.networkFailure', {
+    host,
+    seconds: Math.round((Date.now() - started) / 1000),
+    size: payload.length,
+    stage,
+    connection: t(navigator.onLine === false ? 'error.browserOffline' : 'error.browserOnline'),
+  }));
+  let response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: payload,
+    });
+  } catch {
+    throw connectionError(t('error.noHttpResponse'));
+  }
+  try {
+    if (!response.ok) {
+      const detail = await response.text();
+      throw new Error(t('error.http', { status: response.status, detail }));
+    }
+    return await response.json();
+  } catch (err) {
+    if (err instanceof TypeError) {
+      throw connectionError(t('error.responseInterrupted', { status: response.status }));
+    }
+    throw err;
+  }
+}
+
 async function analyze() {
   if (!settings.endpoint || !settings.deployment) {
     toast(t('error.configureAzure'));
@@ -1051,20 +1089,7 @@ async function analyze() {
       response_format: getAnalysisResponseFormat(),
     };
 
-    const resp = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(body),
-    });
-
-    if (!resp.ok) {
-      const errText = await resp.text();
-      throw new Error(t('error.http', { status: resp.status, detail: errText }));
-    }
-    const data = await resp.json();
+    const data = await postModelJson(url, token, body);
     const parsed = parseAnalysisResponse(data);
     renderResult(parsed);
   } catch (err) {
@@ -1384,19 +1409,7 @@ async function gradeExercise() {
       max_completion_tokens: 3000,
       response_format: getCorrectionResponseFormat(),
     };
-    const resp = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(body),
-    });
-    if (!resp.ok) {
-      const errText = await resp.text();
-      throw new Error(t('error.http', { status: resp.status, detail: errText }));
-    }
-    renderExerciseFeedback(parseCorrectionResponse(await resp.json()));
+    renderExerciseFeedback(parseCorrectionResponse(await postModelJson(url, token, body)));
   } catch (err) {
     console.error(err);
     const summary = document.getElementById('exercise-feedback-summary');
